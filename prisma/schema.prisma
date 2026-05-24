@@ -9,8 +9,9 @@ generator client {
 
 model User {
   id           Int           @id @default(autoincrement())
-  email        String        @unique
-  phone        String?
+  name         String        @default("Trader")
+  mobile       String        @unique // ✅ Added unique mobile field for your OTP login lookups
+  username     String        @unique // ✅ Added unique username field for platform profiles
   cash         Float         @default(1000000.0)
   streak       Int           @default(1)
   lastActive   DateTime      @default(now())
@@ -34,13 +35,13 @@ model Stock {
 }
 
 model Holding {
-  id        Int    @id @default(autoincrement())
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    Int
-  stock     Stock  @relation(fields: [stockId], references: [id])
-  stockId   String
-  quantity  Int
-  avgPrice  Float
+  id       Int    @id @default(autoincrement())
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   Int
+  stock    Stock  @relation(fields: [stockId], references: [id])
+  stockId  String
+  quantity Int
+  avgPrice Float
 
   @@unique([userId, stockId])
 }
@@ -58,12 +59,12 @@ model Transaction {
 }
 
 model Competitor {
-  id        Int                 @id @default(autoincrement())
-  username  String              @unique
-  avatar    String              // Avatar background color or short label
-  cash      Float               @default(1000000.0)
-  streak    Int                 @default(5)
-  holdings  CompetitorHolding[]
+  id       Int                 @id @default(autoincrement())
+  username String              @unique
+  avatar   String              // Avatar background color or short label
+  cash     Float               // Credit virtual cash
+  streak   Int                 @default(5)
+  holdings CompetitorHolding[]
 }
 
 model CompetitorHolding {
