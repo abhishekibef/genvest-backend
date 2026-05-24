@@ -3,121 +3,92 @@ import express from 'express';
 export function getAuthRouter(prisma) {
   const router = express.Router();
 
-  // 🔐 1. THE LOGIN ENDPOINT
-  router.post('/login', async (req, res) => {
-    const { identifier } = req.body; // Expects Username from the frontend input
+  // 📝 STAGE 1: OTP GENERATION AND USER LOOKUP ENDPOINT
+  router.post('/otp-request', async (req, res) => {
+    const { mobile } = req.body;
 
-    if (!identifier) {
-      return res.status(400).json({ error: 'Username is required to sign in!' });
+    if (!mobile) {
+      return res.status(400).json({ error: 'Mobile number query string entry is mandatory!' });
     }
 
     try {
-      // Find the user by their unique username
-      let user = await prisma.user.findUnique({
-        where: { username: identifier.trim().toLowerCase() }
+      // Query database to locate account by mobile phone number column
+      const user = await prisma.user.findFirst({
+        where: { mobile: mobile.trim() }
       });
 
-      if (!user) {
-        return res.status(404).json({ error: 'Account not found! Please register first.' });
-      }
+      // Log delivery tracking to system console interface
+      console.log(`✉️ Mock OTP Token Generated for ${mobile}: Code [1234]`);
 
-      // Update login streak metrics
-      const now = new Date();
-      const lastActive = new Date(user.lastActive || now);
-      const hourDiff = (now - lastActive) / (1000 * 60 * 60);
-
-      let newStreak = user.streak || 1;
-      if (hourDiff > 20 && hourDiff <= 48) {
-        newStreak += 1;
-      } else if (hourDiff > 48) {
-        newStreak = 1;
-      }
-
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          streak: newStreak,
-          lastActive: now
-        }
-      });
-
-      // Send response data matching your frontend shape (data.id, data.name)
       res.status(200).json({
-        id: user.id,
-        username: user.username,
-        name: user.name,
-        email: user.email,
-        mobile: user.mobile,
-        streak: user.streak
+        message: 'Verification token generated successfully!',
+        isNewUser: !user // Returns true if number isn't registered yet
       });
-
-    } catch (error) {
-      console.error('❌ Login database mismatch:', error);
-      res.status(500).json({ error: 'Server internal login failure.' });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server internal validation engine timeout.' });
     }
   });
 
-  // 📝 2. THE NEWLY ADDED REGISTER ENDPOINT
-  router.post('/register', async (req, res) => {
-    const { username, name, email, mobile } = req.body;
+  // 🔐 STAGE 2: CONFIRM PIN AND ESTABLISH LOGGED-IN ACCOUNT SESSION
+  router.post('/otp-verify', async (req, res) => {
+    const { mobile, code, name } = req.body;
 
-    if (!username || !name) {
-      return res.status(400).json({ error: 'Full Name and Username are mandatory fields!' });
+    if (!mobile || !code) {
+      return res.status(400).json({ error: 'Mobile number and validation token pin are required!' });
     }
 
-    if (!email && !mobile) {
-      return res.status(400).json({ error: 'You must provide either an Email ID or a Mobile Number.' });
+    // Strict Evaluation Rule: Enforce 4-digit PIN confirmation values
+    if (code !== '1234') {
+      return res.status(401).json({ error: 'Invalid 4-digit verification code. Please try again!' });
     }
 
     try {
-      // Verify username uniqueness to avoid replication crashes
-      const existingUser = await prisma.user.findUnique({
-        where: { username: username.trim().toLowerCase() }
+      let user = await prisma.user.findFirst({
+        where: { mobile: mobile.trim() }
       });
 
-      if (existingUser) {
-        return res.status(400).json({ error: 'This username is already taken. Try a different one!' });
-      }
-
-      console.log(`🆕 Registering data properties for account holder: ${username}`);
-
-      // Create user row with schema mappings
-      const newUser = await prisma.user.create({
-        data: {
-          username: username.trim().toLowerCase(),
-          name: name.trim(),
-          email: email ? email.trim().toLowerCase() : null,
-          mobile: mobile ? mobile.trim() : null,
-          streak: 1,
-          lastActive: new Date()
+      if (!user) {
+        if (!name) {
+          return res.status(400).json({ error: 'Full profile name is required for registering new accounts!' });
         }
-      });
 
-      // Automatically build a starting portfolio wallet row for this new trader ID
-      try {
-        await prisma.portfolio.create({
+        // Setup a brand new account inside database tables seamlessly
+        user = await prisma.user.create({
           data: {
-            userId: newUser.id,
-            cashBalance: 10000.0 // Start user off with $10,000 virtual trading cash
+            mobile: mobile.trim(),
+            name: name.trim(),
+            username: `user_${Math.floor(1000 + Math.random() * 9000)}`, // Generates clean random username placeholder
+            streak: 1,
+            lastActive: new Date()
           }
         });
-      } catch (portfolioErr) {
-        console.error('⚠️ Virtual portfolio auto-generation failed:', portfolioErr.message);
+
+        // Seed wallet assets for newly validated profile ID
+        await prisma.portfolio.create({
+          data: {
+            userId: user.id,
+            cashBalance: 10000.00 // Seed with $10,000 baseline paper trading balance
+          }
+        });
+      } else {
+        // Track logging metrics for returning traders
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { lastActive: new Date() }
+        });
       }
 
-      // Return user properties back to your frontend framework state setter
-      res.status(201).json({
-        id: newUser.id,
-        username: newUser.username,
-        name: newUser.name,
-        email: newUser.email,
-        mobile: newUser.mobile,
-        streak: newUser.streak
+      // Return clean session profile properties to frontend hooks
+      res.status(200).json({
+        id: user.id,
+        mobile: user.mobile,
+        name: user.name,
+        streak: user.streak
       });
-
-    } catch (error) {
-      console.error('❌ Server registration controller failure:', error);
-      res.status(500).json({ error: 'Database record assignment failed. Check column definitions.' });
+    } catch (err) {
+      console.error('❌ Database token registration mapping error:', err);
+      res.status(500).json({ error: 'Internal system secure row entry mutation failure.' });
     }
   });
 
