@@ -20,8 +20,19 @@ const PORT = process.env.PORT || 5001;
 // Initialize Prisma
 const prisma = new PrismaClient();
 
-// Middleware
-app.use(cors());
+// ✅ FIXED: Configured strict CORS headers to explicitly allow your live frontend domain connections
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'https://thegenvest.com',
+    'https://www.thegenvest.com',
+    'https://genvest-frontend.vercel.app'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
 app.use(express.json());
 
 // Simulation trigger middleware (fluctuates prices on active routing requests)
@@ -48,7 +59,7 @@ app.use((err, req, res, next) => {
 
 // Boot the server
 app.listen(PORT, () => {
-  console.log(`🚀 Gen Z Trading Server running on: http://localhost:${PORT}`);
+  console.log(`🚀 Gen Z Trading Server running on port: ${PORT}`);
 });
 
 // Graceful shutdown
