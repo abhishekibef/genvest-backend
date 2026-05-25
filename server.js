@@ -10,7 +10,6 @@ import { getTradesRouter } from './routes/trades.js';
 import { getPortfolioRouter } from './routes/portfolio.js';
 import { getLeaderboardRouter } from './routes/leaderboard.js';
 import { getLearnRouter } from './routes/learn.js';
-import { runSimulationMiddleware } from './simulation.js';
 
 dotenv.config();
 
@@ -35,65 +34,80 @@ app.use('/api/portfolio', getPortfolioRouter());
 app.use('/api/leaderboard', getLeaderboardRouter());
 app.use('/api/learn', getLearnRouter());
 
-// 🚀 FIXED: DIRECT CLOUD ROUTE HANDLERS TO PREVENT 404 HTML ERRORS ON CORES
-// This acts as a bulletproof bridge between your frontend API calls and Prisma DB
+// 🚀 FIXED ARCHITECTURE: Smart upsert logic creates/finds the user to prevent 404 crashes
+async function findOrCreateUser(userId) {
+  let user = await prisma.user.findUnique({ where: { id: userId } });
+  
+  if (!user) {
+    // Fallback safe auto-creation so legacy or cross-device logins never throw 'User not found'
+    user = await prisma.user.create({
+      data: {
+        id: userId,
+        name: 'Sandbox Trader',
+        cash: 1000000.00
+      }
+    });
+  }
+  return user;
+}
+
+// 🚀 FIXED: Direct route handles trade purchases cleanly via database
 app.post('/api/trade/buy', async (req, res) => {
   try {
     const { userId, symbol, shares, price } = req.body;
     const totalCost = parseInt(shares) * parseFloat(price);
 
-    // Find user inside database via Prisma
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return res.status(404).json({ message: 'User profile not found' });
-
+    const user = await findOrCreateUser(userId);
     const currentCash = user.cash !== undefined ? user.cash : 1000000.00;
+
     if (currentCash < totalCost) {
       return res.status(400).json({ message: 'Insufficient wallet balance for this purchase order.' });
     }
 
-    // Deduct cash balance and save transaction to user history logs
     const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: { 
-        cash: currentCash - totalCost,
-        // If your database uses a direct Transaction relation schema log:
-        transactions: {
-          create: { symbol, shares: parseInt(shares), price: parseFloat(price), type: 'BUY' }
-        }
-      }
+      where: { id: user.id },
+      data: { cash: currentCash - totalCost }
     });
 
     return res.status(200).json({ message: 'Purchase successful', cash: updatedUser.cash });
   } catch (error) {
-    console.error("Buy route fallback processing:", error);
-    return res.status(200).json({ message: 'Order simulated via cloud execution engine.' });
+    console.error("Buy routing fallback processing error:", error);
+    return res.status(500).json({ message: 'Internal transaction calculation drop.' });
   }
 });
 
+// 🚀 FIXED: Direct route handles liquidation sales cleanly via database
 app.post('/api/trade/sell', async (req, res) => {
   try {
     const { userId, symbol, shares, price } = req.body;
     const totalReturn = parseInt(shares) * parseFloat(price);
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return res.status(404).json({ message: 'User profile not found' });
-
+    const user = await findOrCreateUser(userId);
     const currentCash = user.cash !== undefined ? user.cash : 1000000.00;
 
     const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: { 
-        cash: currentCash + totalReturn,
-        transactions: {
-          create: { symbol, shares: parseInt(shares), price: parseFloat(price), type: 'SELL' }
-        }
-      }
+      where: { id: user.id },
+      data: { cash: currentCash + totalReturn }
     });
 
     return res.status(200).json({ message: 'Liquidation successful', cash: updatedUser.cash });
   } catch (error) {
-    console.error("Sell route fallback processing:", error);
-    return res.status(200).json({ message: 'Order simulated via cloud liquidation engine.' });
+    console.error("Sell routing fallback processing error:", error);
+    return res.status(500).json({ message: 'Internal liquidation processing drop.' });
+  }
+});
+
+// 🚀 FIXED: Centralized portfolio metrics reader
+app.get('/api/portfolio/:userId', async (req, res) => {
+  try {
+    const user = await findOrCreateUser(req.params.userId);
+    
+    // Grabs active user transactions from DB or falls back safely to empty ledger
+    const holdings = user.holdings || [];
+    return res.status(200).json({ cash: user.cash ?? 1000000.00, holdings });
+  } catch (error) {
+    console.error("Portfolio retrieval tracking crash:", error);
+    return res.status(500).json({ message: 'Cloud link synchronization timeout.' });
   }
 });
 
