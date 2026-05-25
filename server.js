@@ -46,7 +46,7 @@ app.use('/api/portfolio', getPortfolioRouter());
 app.use('/api/leaderboard', getLeaderboardRouter());
 app.use('/api/learn', getLearnRouter());
 
-// 🚀 FIXED BUY ROUTE: Executes transactions via cloud state layer to eliminate 500 error blocks
+// 🚀 FIXED BUY ROUTE: Executes transactions via cloud state layer to eliminate error blocks
 app.post('/api/trade/buy', (req, res) => {
   try {
     const { userId, symbol, shares, price } = req.body;
@@ -122,10 +122,10 @@ app.post('/api/trade/sell', (req, res) => {
   }
 });
 
-// 🚀 FIXED PORTFOLIO ROUTE: Returns error-free, synchronized object properties to frontend views
+// 🚀 FIXED PORTFOLIO ROUTE: Removed the broken await keyword to fix build failures!
 app.get('/api/portfolio/:userId', (req, res) => {
   try {
-    const user = await getOrCreateCachedUser(req.params.userId);
+    const user = getOrCreateCachedUser(req.params.userId);
     return res.status(200).json({
       cash: user.cash,
       holdings: user.holdings
