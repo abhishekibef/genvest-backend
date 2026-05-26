@@ -5,8 +5,19 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// ============ CORS CONFIGURATION (FIXED) ============
+// Allow your frontend to communicate with this backend
+const corsOptions = {
+  origin: ['https://genvest-frontend.vercel.app', 'http://localhost:3000'], // Add your frontend URLs
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle preflight requests
+
 app.use(express.json());
 
 // MongoDB Connection
