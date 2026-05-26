@@ -1,142 +1,158 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-
-// Imports custom routes
-import { getAuthRouter } from './routes/auth.js';
-import { getStocksRouter } from './routes/stocks.js';
-import { getTradesRouter } from './routes/trades.js';
-import { getPortfolioRouter } from './routes/portfolio.js';
-import { getLeaderboardRouter } from './routes/leaderboard.js';
-import { getLearnRouter } from './routes/learn.js';
-
-dotenv.config();
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
 
 const app = express();
-const PORT = process.env.PORT || 5001;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// 🚀 NATIVE CLOUD CACHE ENGINE: Guarantees zero schema mismatches or database constraint crashes
-const globalUserCache = new Map();
+// MongoDB Connection
+const MONGODB_URI = process.env.MONGODB_URI;
 
-function getOrCreateCachedUser(userId) {
-  if (!globalUserCache.has(userId)) {
-    globalUserCache.set(userId, {
-      id: userId,
-      cash: 1000000.00,
-      holdings: []
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('✅ MongoDB Connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
+
+// User Schema
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  username: { type: String, required: true, unique: true },
+  loginMethod: { type: String, enum: ['mobile', 'email'] },
+  cash: { type: Number, default: 1000000.00 },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+
+// ============ API ROUTES ============
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Backend is working! 🚀' });
+});
+
+// Sign Up
+app.post('/api/signup', async (req, res) => {
+  try {
+    const { name, username, loginMethod, cash } = req.body;
+    
+    // Check if user exists
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists. Please Sign In.' });
+    }
+    
+    // Create new user
+    const user = new User({
+      name,
+      username,
+      loginMethod,
+      cash: cash || 1000000.00
     });
-  }
-  return globalUserCache.get(userId);
-}
-
-// Base Health Check Route
-app.get('/', (req, res) => {
-  res.send('GenVest Central Cloud Engine is running live.');
-});
-
-// Use registered sub-routers
-app.use('/api/auth', getAuthRouter());
-app.use('/api/stocks', getStocksRouter());
-app.use('/api/trades', getTradesRouter());
-app.use('/api/portfolio', getPortfolioRouter());
-app.use('/api/leaderboard', getLeaderboardRouter());
-app.use('/api/learn', getLearnRouter());
-
-// 🚀 FIXED BUY ROUTE: Executes transactions via cloud state layer safely
-app.post('/api/trade/buy', (req, res) => {
-  try {
-    const { userId, symbol, shares, price } = req.body;
-    const qty = parseInt(shares);
-    const buyPrice = parseFloat(price);
-    const totalCost = qty * buyPrice;
-
-    if (isNaN(qty) || qty <= 0) {
-      return res.status(400).json({ message: 'Invalid quantity provided.' });
-    }
-
-    const user = getOrCreateCachedUser(userId);
-
-    if (user.cash < totalCost) {
-      return res.status(400).json({ message: 'Insufficient wallet balance for this purchase order.' });
-    }
-
-    // Process transaction balances safely
-    user.cash -= totalCost;
-
-    const assetIndex = user.holdings.findIndex(item => item.symbol === symbol);
-    if (assetIndex > -1) {
-      const currentHolding = user.holdings[assetIndex];
-      const totalShares = currentHolding.shares + qty;
-      currentHolding.avgPrice = ((currentHolding.shares * currentHolding.avgPrice) + (qty * buyPrice)) / totalShares;
-      currentHolding.shares = totalShares;
-    } else {
-      user.holdings.push({
-        symbol,
-        shares: qty,
-        avgPrice: buyPrice
-      });
-    }
-
-    return res.status(200).json({ message: 'Purchase successful', cash: user.cash });
-  } catch (error) {
-    console.error("Critical Buy Route Error:", error);
-    return res.status(500).json({ message: 'Internal server processing error.' });
-  }
-});
-
-// 🚀 FIXED SELL ROUTE: Executes liquidation orders cleanly
-app.post('/api/trade/sell', (req, res) => {
-  try {
-    const { userId, symbol, shares, price } = req.body;
-    const qty = parseInt(shares);
-    const sellPrice = parseFloat(price);
-    const totalReturn = qty * sellPrice;
-
-    if (isNaN(qty) || qty <= 0) {
-      return res.status(400).json({ message: 'Invalid quantity provided.' });
-    }
-
-    const user = getOrCreateCachedUser(userId);
-    const assetIndex = user.holdings.findIndex(item => item.symbol === symbol);
-
-    if (assetIndex === -1 || user.holdings[assetIndex].shares < qty) {
-      return res.status(400).json({ message: 'Insufficient shares to execute this sale.' });
-    }
-
-    // Process liquidation updates
-    user.cash += totalReturn;
-    user.holdings[assetIndex].shares -= qty;
-
-    if (user.holdings[assetIndex].shares === 0) {
-      user.holdings.splice(assetIndex, 1);
-    }
-
-    return res.status(200).json({ message: 'Liquidation successful', cash: user.cash });
-  } catch (error) {
-    console.error("Critical Sell Route Error:", error);
-    return res.status(500).json({ message: 'Internal server liquidation failed.' });
-  }
-});
-
-// 🚀 FIXED PORTFOLIO ROUTE: Removed the broken sync 'await' execution to restore payload transfers
-app.get('/api/portfolio/:userId', (req, res) => {
-  try {
-    const user = getOrCreateCachedUser(req.params.userId);
-    return res.status(200).json({
-      cash: user.cash,
-      holdings: user.holdings
+    
+    await user.save();
+    
+    // Create token
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    res.status(201).json({
+      message: 'Account created successfully!',
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        username: user.username,
+        cash: user.cash
+      }
     });
   } catch (error) {
-    console.error("Critical Portfolio Route Error:", error);
-    return res.status(500).json({ message: 'Cloud link synchronization timeout.' });
+    console.error('Signup error:', error);
+    res.status(500).json({ message: 'Server error. Please try again.' });
   }
 });
 
-// Server Initialization
+// Sign In
+app.post('/api/signin', async (req, res) => {
+  try {
+    const { username } = req.body;
+    
+    // Find user
+    const user = await User.findOne({ username });
+    
+    if (!user) {
+      return res.status(404).json({ message: 'No active profile found. Please Sign Up first.' });
+    }
+    
+    // Create token
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    res.json({
+      message: 'Login successful!',
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        username: user.username,
+        cash: user.cash
+      }
+    });
+  } catch (error) {
+    console.error('Signin error:', error);
+    res.status(500).json({ message: 'Server error. Please try again.' });
+  }
+});
+
+// Verify Token
+app.get('/api/verify-token', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId).select('-__v');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json({
+      id: user._id,
+      name: user.name,
+      username: user.username,
+      cash: user.cash
+    });
+  } catch (error) {
+    res.status(401).json({ message: 'Invalid token' });
+  }
+});
+
+// Get user by ID
+app.get('/api/user/:id', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-__v');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 GenVest Central Server streaming on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
