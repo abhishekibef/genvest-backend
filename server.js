@@ -47,6 +47,33 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
+// ============ PORTFOLIO SCHEMAS (NEW - ADDED) ============
+
+// Holding Schema (stocks owned by user)
+const holdingSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  symbol: { type: String, required: true },
+  name: { type: String, required: true },
+  shares: { type: Number, required: true, default: 0 },
+  avgPrice: { type: Number, required: true },
+  exchange: { type: String, default: 'NSE' },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+// Transaction Schema (buy/sell records)
+const transactionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  symbol: { type: String, required: true },
+  type: { type: String, enum: ['BUY', 'SELL'], required: true },
+  quantity: { type: Number, required: true },
+  price: { type: Number, required: true },
+  totalAmount: { type: Number, required: true },
+  timestamp: { type: Date, default: Date.now }
+});
+
+const Holding = mongoose.model('Holding', holdingSchema);
+const Transaction = mongoose.model('Transaction', transactionSchema);
+
 // ============ API ROUTES ============
 
 // Test endpoint
@@ -169,6 +196,163 @@ app.get('/api/verify-token', async (req, res) => {
     });
   } catch (error) {
     res.status(401).json({ message: 'Invalid token' });
+  }
+});
+
+// ============ PORTFOLIO API ROUTES (NEW - ADDED) ============
+
+// Get user's portfolio (holdings + cash balance)
+app.get('/api/portfolio/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const holdings = await Holding.find({ userId });
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    let holdingsValue = 0;
+    const holdingsList = holdings.map(h => {
+      const value = h.shares * h.avgPrice;
+      holdingsValue += value;
+      return {
+        symbol: h.symbol,
+        name: h.name,
+        shares: h.shares,
+        avgPrice: h.avgPrice,
+        exchange: h.exchange,
+        totalValue: value
+      };
+    });
+    
+    res.json({
+      cashBalance: user.cash,
+      holdingsValue: holdingsValue,
+      netWorth: user.cash + holdingsValue,
+      holdings: holdingsList
+    });
+  } catch (error) {
+    console.error('Portfolio error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Buy stock
+app.post('/api/portfolio/buy', async (req, res) => {
+  try {
+    const { userId, symbol, quantity, price, name, exchange } = req.body;
+    const totalAmount = quantity * price;
+    
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (user.cash < totalAmount) {
+      return res.status(400).json({ message: 'Insufficient funds', success: false });
+    }
+    
+    // Deduct cash
+    user.cash -= totalAmount;
+    await user.save();
+    
+    // Update or create holding
+    let holding = await Holding.findOne({ userId, symbol });
+    if (holding) {
+      const newShares = holding.shares + quantity;
+      const newAvgPrice = ((holding.shares * holding.avgPrice) + totalAmount) / newShares;
+      holding.shares = newShares;
+      holding.avgPrice = newAvgPrice;
+      holding.updatedAt = Date.now();
+    } else {
+      holding = new Holding({ 
+        userId, 
+        symbol, 
+        name: name || symbol, 
+        shares: quantity, 
+        avgPrice: price, 
+        exchange: exchange || 'NSE' 
+      });
+    }
+    await holding.save();
+    
+    // Record transaction
+    const transaction = new Transaction({ 
+      userId, 
+      symbol, 
+      type: 'BUY', 
+      quantity, 
+      price, 
+      totalAmount 
+    });
+    await transaction.save();
+    
+    console.log(`✅ BUY: ${quantity} ${symbol} for user ${userId}`);
+    res.json({ success: true, cashBalance: user.cash });
+  } catch (error) {
+    console.error('Buy error:', error);
+    res.status(500).json({ message: error.message, success: false });
+  }
+});
+
+// Sell stock
+app.post('/api/portfolio/sell', async (req, res) => {
+  try {
+    const { userId, symbol, quantity, price } = req.body;
+    const totalAmount = quantity * price;
+    
+    const holding = await Holding.findOne({ userId, symbol });
+    if (!holding || holding.shares < quantity) {
+      return res.status(400).json({ message: 'Insufficient shares', success: false });
+    }
+    
+    // Add cash
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    user.cash += totalAmount;
+    await user.save();
+    
+    // Update holding
+    holding.shares -= quantity;
+    if (holding.shares === 0) {
+      await holding.deleteOne();
+    } else {
+      await holding.save();
+    }
+    
+    // Record transaction
+    const transaction = new Transaction({ 
+      userId, 
+      symbol, 
+      type: 'SELL', 
+      quantity, 
+      price, 
+      totalAmount 
+    });
+    await transaction.save();
+    
+    console.log(`✅ SELL: ${quantity} ${symbol} for user ${userId}`);
+    res.json({ success: true, cashBalance: user.cash });
+  } catch (error) {
+    console.error('Sell error:', error);
+    res.status(500).json({ message: error.message, success: false });
+  }
+});
+
+// Get user's transaction history
+app.get('/api/transactions/:userId', async (req, res) => {
+  try {
+    const transactions = await Transaction.find({ userId: req.params.userId })
+      .sort({ timestamp: -1 })
+      .limit(50);
+    res.json(transactions);
+  } catch (error) {
+    console.error('Transactions error:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
