@@ -5,32 +5,22 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 
-// ============ CORS CONFIGURATION (Mobile Friendly) ============
-const corsOptions = {
-  origin: [
-    'https://genvest-frontend.vercel.app',
-    'http://localhost:3000',
-    'https://genvest-frontend.vercel.app',
-    'https://thegenvest.com',
-    /\.vercel\.app$/,
-    /\.onrender\.com$/
-  ],
+// ============ SIMPLIFIED CORS - ALLOWS ALL ORIGINS ============
+app.use(cors({
+  origin: '*',
   credentials: true,
-  optionsSuccessStatus: 200,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
-};
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.options('*', cors());
 
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
 app.use(express.json());
 
-// ============ MONGODB CONNECTION (WITH DETAILED LOGGING) ============
+// ============ MONGODB CONNECTION ============
 const MONGODB_URI = process.env.MONGODB_URI;
 
 console.log('='.repeat(50));
 console.log('📡 ATTEMPTING TO CONNECT TO MONGODB...');
-console.log(`🔗 Connection string starts with: ${MONGODB_URI ? MONGODB_URI.substring(0, 60) : 'UNDEFINED!'}...`);
 console.log('='.repeat(50));
 
 mongoose.connect(MONGODB_URI, {
@@ -40,14 +30,10 @@ mongoose.connect(MONGODB_URI, {
   .then(() => {
     console.log('✅✅✅ MONGODB CONNECTED SUCCESSFULLY! ✅✅✅');
     console.log(`📦 Database name: ${mongoose.connection.name}`);
-    console.log(`🌐 Host: ${mongoose.connection.host}`);
   })
   .catch(err => {
     console.error('❌❌❌ MONGODB CONNECTION ERROR ❌❌❌');
     console.error(`Error message: ${err.message}`);
-    console.error(`Error name: ${err.name}`);
-    if (err.reason) console.error(`Reason: ${err.reason}`);
-    console.error('Full error:', err);
   });
 
 // User Schema
@@ -63,40 +49,30 @@ const User = mongoose.model('User', userSchema);
 
 // ============ API ROUTES ============
 
-// Test endpoint - checks if server is running
+// Test endpoint
 app.get('/api/test', (req, res) => {
   res.json({ 
     message: 'Backend is working! 🚀',
-    mongoState: mongoose.connection.readyState,
-    mongoStateText: {
-      0: 'disconnected',
-      1: 'connected',
-      2: 'connecting',
-      3: 'disconnecting'
-    }[mongoose.connection.readyState] || 'unknown'
+    mongoState: mongoose.connection.readyState
   });
 });
 
 // Sign Up
 app.post('/api/signup', async (req, res) => {
-  console.log('📝 Signup request received for:', req.body.username);
+  console.log('📝 Signup request for:', req.body.username);
   
   try {
     const { name, username, loginMethod, cash } = req.body;
     
-    // Check MongoDB connection state
     if (mongoose.connection.readyState !== 1) {
-      console.error('❌ MongoDB not connected. State:', mongoose.connection.readyState);
-      return res.status(500).json({ message: 'Database connection not ready. Please try again.' });
+      return res.status(500).json({ message: 'Database not ready' });
     }
     
-    // Check if user exists
     const existingUser = await User.findOne({ username });
     if (existingUser) {
-      return res.status(400).json({ message: 'User already exists. Please Sign In.' });
+      return res.status(400).json({ message: 'User already exists' });
     }
     
-    // Create new user
     const user = new User({
       name,
       username,
@@ -105,9 +81,8 @@ app.post('/api/signup', async (req, res) => {
     });
     
     await user.save();
-    console.log('✅ User created successfully:', username);
+    console.log('✅ User created:', username);
     
-    // Create token
     const token = jwt.sign(
       { userId: user._id },
       process.env.JWT_SECRET,
@@ -125,26 +100,26 @@ app.post('/api/signup', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Signup error details:', error);
-    res.status(500).json({ message: `Server error: ${error.message}` });
+    console.error('Signup error:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
 // Sign In
 app.post('/api/signin', async (req, res) => {
-  console.log('🔐 Signin request received for:', req.body.username);
+  console.log('🔐 Signin request for:', req.body.username);
   
   try {
     const { username } = req.body;
     
     if (mongoose.connection.readyState !== 1) {
-      return res.status(500).json({ message: 'Database connection not ready.' });
+      return res.status(500).json({ message: 'Database not ready' });
     }
     
     const user = await User.findOne({ username });
     
     if (!user) {
-      return res.status(404).json({ message: 'No active profile found. Please Sign Up first.' });
+      return res.status(404).json({ message: 'User not found. Please sign up first.' });
     }
     
     const token = jwt.sign(
@@ -166,8 +141,8 @@ app.post('/api/signin', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Signin error:', error);
-    res.status(500).json({ message: `Server error: ${error.message}` });
+    console.error('Signin error:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -197,21 +172,7 @@ app.get('/api/verify-token', async (req, res) => {
   }
 });
 
-// Get user by ID
-app.get('/api/user/:id', async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id).select('-__v');
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`✅ Ready to accept connections`);
 });
