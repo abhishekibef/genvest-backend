@@ -5,13 +5,20 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 
-// ============ CORS CONFIGURATION ============
+// ============ CORS CONFIGURATION (Mobile Friendly) ============
 const corsOptions = {
-  origin: ['https://genvest-frontend.vercel.app', 'http://localhost:3000'],
+  origin: [
+    'https://genvest-frontend.vercel.app',
+    'http://localhost:3000',
+    'https://genvest-frontend.vercel.app',
+    'https://thegenvest.com',
+    /\.vercel\.app$/,
+    /\.onrender\.com$/
+  ],
   credentials: true,
   optionsSuccessStatus: 200,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 };
 
 app.use(cors(corsOptions));
