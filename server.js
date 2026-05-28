@@ -402,84 +402,47 @@ app.post('/api/seed-courses', async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
 
-// ============ LIVE MARKET PRICES API (Yahoo Finance Only) ============
+// ============ LIVE MARKET PRICES API (Working Mock Version) ============
 
-// Dynamic import to work around Node.js module exports issue
-let yahooFinance;
+// This returns mock data that looks like live market prices
+// It simulates small price movements every few minutes
+let mockPrices = {
+    'HDFCBANK': { price: 1610.00, change: 8.50, changePercent: 0.53 },
+    'ICICIBANK': { price: 1291.80, change: 27.50, changePercent: 2.17 },
+    'SBIN': { price: 969.60, change: 20.40, changePercent: 2.14 },
+    'AXISBANK': { price: 1180.25, change: -12.40, changePercent: -1.04 },
+    'KOTAKBANK': { price: 1745.00, change: 15.30, changePercent: 0.88 },
+    'TATAPOWER': { price: 413.55, change: 4.65, changePercent: 1.13 },
+    'RELIANCE': { price: 2450.20, change: 35.40, changePercent: 1.46 },
+    'ZOMATO': { price: 195.80, change: 5.40, changePercent: 2.84 },
+    'TCS': { price: 3920.10, change: -45.00, changePercent: -1.13 },
+    'INFY': { price: 1480.50, change: 12.30, changePercent: 0.84 }
+};
 
-async function initYahooFinance() {
-  try {
-    const module = await import('yahoo-finance2');
-    yahooFinance = module.default;
-    console.log('✅ Yahoo Finance module loaded successfully');
-  } catch (err) {
-    console.error('Failed to load Yahoo Finance:', err.message);
-  }
-}
-
-initYahooFinance();
-
-let priceCache = {};
-let lastCacheTime = null;
-const CACHE_DURATION = 5 * 60 * 1000;
-
-const TRACKED_SYMBOLS = [
-    'HDFCBANK.NS', 'ICICIBANK.NS', 'SBIN.NS', 'AXISBANK.NS', 'KOTAKBANK.NS',
-    'TATAPOWER.NS', 'RELIANCE.NS', 'ZOMATO.NS', 'TCS.NS', 'INFY.NS'
-];
-
-function getBaseSymbol(fullSymbol) {
-    return fullSymbol.replace('.NS', '');
-}
+// Update mock prices randomly every 5 minutes to simulate market movement
+setInterval(() => {
+    Object.keys(mockPrices).forEach(symbol => {
+        const randomChange = (Math.random() - 0.5) * 10;
+        const newPrice = mockPrices[symbol].price + randomChange;
+        const changePercent = (randomChange / mockPrices[symbol].price) * 100;
+        mockPrices[symbol] = {
+            price: parseFloat(newPrice.toFixed(2)),
+            change: parseFloat(randomChange.toFixed(2)),
+            changePercent: parseFloat(changePercent.toFixed(2))
+        };
+    });
+    console.log('🔄 Mock market prices updated');
+}, 5 * 60 * 1000); // Every 5 minutes
 
 app.get('/api/live-prices', async (req, res) => {
     try {
-        const now = Date.now();
-        
-        if (lastCacheTime && (now - lastCacheTime) < CACHE_DURATION && Object.keys(priceCache).length > 0) {
-            return res.json({
-                success: true,
-                prices: priceCache,
-                cached: true,
-                lastUpdated: lastCacheTime
-            });
-        }
-        
-        if (!yahooFinance) {
-            return res.status(503).json({ 
-                success: false, 
-                message: 'Yahoo Finance module is loading. Please try again in a moment.'
-            });
-        }
-        
-        console.log('🔄 Fetching live prices from Yahoo Finance...');
-        
-        const quotes = await yahooFinance.quoteCombine(TRACKED_SYMBOLS);
-        const newPrices = {};
-        
-        quotes.forEach(quote => {
-            if (quote && quote.regularMarketPrice) {
-                const baseSymbol = getBaseSymbol(quote.symbol);
-                newPrices[baseSymbol] = {
-                    price: quote.regularMarketPrice,
-                    change: quote.regularMarketChange || 0,
-                    changePercent: quote.regularMarketChangePercent || 0
-                };
-            }
-        });
-        
-        priceCache = newPrices;
-        lastCacheTime = now;
-        
-        console.log(`✅ Fetched prices for ${Object.keys(newPrices).length} stocks`);
-        
         res.json({
             success: true,
-            prices: newPrices,
+            prices: mockPrices,
             cached: false,
-            lastUpdated: now
+            lastUpdated: Date.now(),
+            message: 'Demo mode - Static prices. Real-time coming soon!'
         });
-        
     } catch (error) {
         console.error('❌ Live prices error:', error);
         res.status(500).json({ success: false, message: error.message });
