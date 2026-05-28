@@ -409,73 +409,39 @@ app.post('/api/seed-courses', async (req, res) => {
     res.json({ success: true, message: '✅ Courses seeded!', courses: 1, levels: 1, lessons: 2 });
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
-// ============ LIVE MARKET PRICES API (Twelve Data + Yahoo Finance Fallback) ============
+// ============ LIVE MARKET PRICES API ============
 
-// Import required packages
-const TwelveData = require('twelvedata');
+// CORRECT IMPORTS
+const TwelveData = require('@twelvedata/twelvedata-node');
 const yahooFinance = require('yahoo-finance2').default;
 
 // Initialize Twelve Data with your API key
-const twelvedata = new TwelveData({
-    key: process.env.TWELVE_DATA_API_KEY || 'f8700aeb354a4effbf4d8fca57ee83a1'
+const twelvedata = new TwelveData.TwelveDataClient({
+    apikey: process.env.TWELVE_DATA_API_KEY || 'f8700aeb354a4effbf4d8fca57ee83a1'
 });
 
-// Cache to reduce API calls (prevents hitting rate limits)
+// Cache to reduce API calls
 let priceCache = {};
 let lastCacheTime = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-// List of stocks to track (must match your INDIAN_MARKET_DATABASE symbols)
+// List of NSE stocks to track
 const TRACKED_SYMBOLS = [
-    'HDFCBANK', 'ICICIBANK', 'SBIN', 'AXISBANK', 'KOTAKBANK',
-    'TATAPOWER', 'RELIANCE', 'ZOMATO', 'TCS', 'INFY'
+    'HDFCBANK.NS', 'ICICIBANK.NS', 'SBIN.NS', 'AXISBANK.NS', 'KOTAKBANK.NS',
+    'TATAPOWER.NS', 'RELIANCE.NS', 'ZOMATO.NS', 'TCS.NS', 'INFY.NS'
 ];
 
-// Function to fetch live price with fallback
-async function fetchLivePrice(symbol) {
-    const nseSymbol = `${symbol}.NS`; // NSE format for Twelve Data
-    
-    try {
-        // Try Twelve Data first (primary source)
-        const response = await twelvedata.quote({ symbol: nseSymbol });
-        if (response && response.price) {
-            return {
-                price: parseFloat(response.price),
-                change: response.change || 0,
-                changePercent: response.percent_change || 0,
-                source: 'twelvedata'
-            };
-        }
-    } catch (error) {
-        console.warn(`⚠️ Twelve Data failed for ${symbol}:`, error.message);
-    }
-    
-    // Fallback to Yahoo Finance
-    try {
-        const quote = await yahooFinance.quote(nseSymbol);
-        if (quote && quote.regularMarketPrice) {
-            return {
-                price: quote.regularMarketPrice,
-                change: quote.regularMarketChange || 0,
-                changePercent: quote.regularMarketChangePercent || 0,
-                source: 'yahoo'
-            };
-        }
-    } catch (error) {
-        console.warn(`⚠️ Yahoo Finance failed for ${symbol}:`, error.message);
-    }
-    
-    return null;
+function getBaseSymbol(fullSymbol) {
+    return fullSymbol.replace('.NS', '');
 }
 
-// Endpoint to get live prices for all tracked stocks
+// Endpoint to get live prices
 app.get('/api/live-prices', async (req, res) => {
     try {
         const now = Date.now();
         
         // Return cached prices if still fresh
         if (lastCacheTime && (now - lastCacheTime) < CACHE_DURATION && Object.keys(priceCache).length > 0) {
-            console.log('📦 Returning cached prices');
             return res.json({
                 success: true,
                 prices: priceCache,
@@ -484,25 +450,56 @@ app.get('/api/live-prices', async (req, res) => {
             });
         }
         
-        console.log('🔄 Fetching fresh live prices...');
+        console.log('🔄 Fetching live prices...');
         
-        // Fetch prices for all symbols in parallel
-        const pricePromises = TRACKED_SYMBOLS.map(symbol => fetchLivePrice(symbol));
-        const results = await Promise.all(pricePromises);
-        
-        // Build the price cache
-        const newPrices = {};
-        TRACKED_SYMBOLS.forEach((symbol, index) => {
-            if (results[index]) {
-                newPrices[symbol] = results[index];
+        // Try Twelve Data first (primary source)
+        try {
+            const quotes = await Promise.all(
+                TRACKED_SYMBOLS.map(symbol => 
+                    twelvedata.quote(symbol).catch(e => null)
+                )
+            );
+            
+            const newPrices = {};
+            quotes.forEach((quote, index) => {
+                if (quote && quote.price) {
+                    const baseSymbol = getBaseSymbol(TRACKED_SYMBOLS[index]);
+                    newPrices[baseSymbol] = {
+                        price: parseFloat(quote.price),
+                        change: quote.change || 0,
+                        changePercent: quote.percent_change || 0,
+                        source: 'twelvedata'
+                    };
+                }
+            });
+            
+            if (Object.keys(newPrices).length > 0) {
+                priceCache = newPrices;
+                lastCacheTime = now;
+                console.log(`✅ Twelve Data: ${Object.keys(newPrices).length} stocks`);
+                return res.json({ success: true, prices: newPrices, cached: false, lastUpdated: now });
             }
+        } catch (tdError) {
+            console.log('⚠️ Twelve Data failed, falling back to Yahoo Finance');
+        }
+        
+        // Fallback to Yahoo Finance
+        const quotes = await yahooFinance.quoteCombine(TRACKED_SYMBOLS);
+        const newPrices = {};
+        quotes.forEach(quote => {
+            const baseSymbol = getBaseSymbol(quote.symbol);
+            newPrices[baseSymbol] = {
+                price: quote.regularMarketPrice || 0,
+                change: quote.regularMarketChange || 0,
+                changePercent: quote.regularMarketChangePercent || 0,
+                source: 'yahoo'
+            };
         });
         
-        // Update cache
         priceCache = newPrices;
         lastCacheTime = now;
         
-        console.log(`✅ Fetched prices for ${Object.keys(newPrices).length} stocks`);
+        console.log(`✅ Yahoo Finance: ${Object.keys(newPrices).length} stocks`);
         
         res.json({
             success: true,
@@ -513,22 +510,6 @@ app.get('/api/live-prices', async (req, res) => {
         
     } catch (error) {
         console.error('❌ Live prices error:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
-// Single stock price endpoint (for specific queries)
-app.get('/api/live-price/:symbol', async (req, res) => {
-    try {
-        const { symbol } = req.params;
-        const price = await fetchLivePrice(symbol.toUpperCase());
-        
-        if (price) {
-            res.json({ success: true, ...price });
-        } else {
-            res.status(404).json({ success: false, message: 'Price not available' });
-        }
-    } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
