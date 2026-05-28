@@ -47,7 +47,7 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
-// ============ PORTFOLIO SCHEMAS (NEW - ADDED) ============
+// ============ PORTFOLIO SCHEMAS ============
 
 // Holding Schema (stocks owned by user)
 const holdingSchema = new mongoose.Schema({
@@ -199,7 +199,7 @@ app.get('/api/verify-token', async (req, res) => {
   }
 });
 
-// ============ PORTFOLIO API ROUTES (NEW - ADDED) ============
+// ============ PORTFOLIO API ROUTES ============
 
 // Get user's portfolio (holdings + cash balance)
 app.get('/api/portfolio/:userId', async (req, res) => {
@@ -352,6 +352,290 @@ app.get('/api/transactions/:userId', async (req, res) => {
     res.json(transactions);
   } catch (error) {
     console.error('Transactions error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ============ LEADERBOARD, BADGES & COMPETITION SCHEMAS ============
+
+// Leaderboard Stats Schema
+const leaderboardStatsSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  userName: { type: String, required: true },
+  netWorth: { type: Number, default: 1000000 },
+  profit: { type: Number, default: 0 },
+  profitPercentage: { type: Number, default: 0 },
+  tradesCount: { type: Number, default: 0 },
+  winRate: { type: Number, default: 0 },
+  bestTrade: { type: Number, default: 0 },
+  weeklyRank: { type: Number, default: 0 },
+  monthlyRank: { type: Number, default: 0 },
+  allTimeRank: { type: Number, default: 0 },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+// Daily Competition Schema
+const dailyCompetitionSchema = new mongoose.Schema({
+  date: { type: String, required: true, unique: true },
+  active: { type: Boolean, default: true },
+  prizePool: { type: String, default: '🏆 Virtual Trophy + Badge' },
+  topEntries: [{
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    userName: { type: String },
+    profit: { type: Number },
+    rank: { type: Number },
+    prize: { type: String }
+  }],
+  startTime: { type: Date, default: Date.now },
+  endTime: { type: Date, default: () => new Date(Date.now() + 24 * 60 * 60 * 1000) }
+});
+
+// Badge Schema
+const badgeSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  badgeId: { type: String, required: true },
+  badgeName: { type: String, required: true },
+  badgeIcon: { type: String },
+  description: { type: String },
+  earnedAt: { type: Date, default: Date.now }
+});
+
+// Tutorial Progress Schema
+const tutorialProgressSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  tutorialId: { type: String, required: true },
+  tutorialName: { type: String, required: true },
+  completed: { type: Boolean, default: false },
+  completedAt: { type: Date },
+  score: { type: Number, default: 0 }
+});
+
+const LeaderboardStats = mongoose.model('LeaderboardStats', leaderboardStatsSchema);
+const DailyCompetition = mongoose.model('DailyCompetition', dailyCompetitionSchema);
+const Badge = mongoose.model('Badge', badgeSchema);
+const TutorialProgress = mongoose.model('TutorialProgress', tutorialProgressSchema);
+
+// Available badges
+const AVAILABLE_BADGES = {
+  'first_trade': { name: 'First Trade', icon: '🎯', description: 'Completed your first trade' },
+  'profit_master': { name: 'Profit Master', icon: '📈', description: 'Made 10% profit overall' },
+  'daily_champion': { name: 'Daily Champion', icon: '🏆', description: 'Won a daily competition' },
+  'tutorial_complete': { name: 'Scholar', icon: '📚', description: 'Completed all tutorials' },
+  'trade_streak': { name: 'Streak Master', icon: '🔥', description: 'Traded 7 days in a row' },
+  'high_roller': { name: 'High Roller', icon: '💰', description: 'Portfolio crossed ₹50 Lakhs' }
+};
+
+// ============ LEADERBOARD API ROUTES ============
+
+// Update leaderboard stats for a user
+app.post('/api/leaderboard/update', async (req, res) => {
+  try {
+    const { userId, userName, netWorth, profit, profitPercentage, tradesCount } = req.body;
+    
+    let stats = await LeaderboardStats.findOne({ userId });
+    if (!stats) {
+      stats = new LeaderboardStats({ userId, userName });
+    }
+    
+    stats.userName = userName;
+    stats.netWorth = netWorth;
+    stats.profit = profit;
+    stats.profitPercentage = profitPercentage;
+    stats.tradesCount = tradesCount;
+    stats.updatedAt = Date.now();
+    
+    await stats.save();
+    
+    // Update rankings
+    const allUsers = await LeaderboardStats.find().sort({ netWorth: -1 });
+    for (let i = 0; i < allUsers.length; i++) {
+      allUsers[i].allTimeRank = i + 1;
+      await allUsers[i].save();
+    }
+    
+    res.json({ success: true, stats });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get leaderboard
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const { period = 'all', limit = 50 } = req.query;
+    
+    let sortField = 'netWorth';
+    if (period === 'weekly') sortField = 'weeklyRank';
+    else if (period === 'monthly') sortField = 'monthlyRank';
+    
+    const leaderboard = await LeaderboardStats.find()
+      .sort({ [sortField]: 1, netWorth: -1 })
+      .limit(parseInt(limit))
+      .populate('userId', 'name');
+    
+    res.json(leaderboard);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get user rank
+app.get('/api/leaderboard/rank/:userId', async (req, res) => {
+  try {
+    const stats = await LeaderboardStats.findOne({ userId: req.params.userId });
+    if (!stats) {
+      return res.json({ rank: null, message: 'User not on leaderboard yet' });
+    }
+    
+    const higherRanked = await LeaderboardStats.countDocuments({ netWorth: { $gt: stats.netWorth } });
+    res.json({ rank: higherRanked + 1, stats });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ============ COMPETITION API ROUTES ============
+
+// Get today's competition
+app.get('/api/competition/today', async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    let competition = await DailyCompetition.findOne({ date: today });
+    
+    if (!competition) {
+      competition = new DailyCompetition({ date: today });
+      await competition.save();
+    }
+    
+    res.json(competition);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Join competition
+app.post('/api/competition/join', async (req, res) => {
+  try {
+    const { userId, userName } = req.body;
+    const today = new Date().toISOString().split('T')[0];
+    
+    let competition = await DailyCompetition.findOne({ date: today });
+    if (!competition) {
+      competition = new DailyCompetition({ date: today });
+    }
+    
+    const alreadyJoined = competition.topEntries.some(entry => entry.userId.toString() === userId);
+    if (!alreadyJoined) {
+      competition.topEntries.push({ userId, userName, profit: 0, rank: 0 });
+      await competition.save();
+    }
+    
+    res.json({ success: true, competition });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Update competition entry
+app.post('/api/competition/update', async (req, res) => {
+  try {
+    const { userId, profit } = req.body;
+    const today = new Date().toISOString().split('T')[0];
+    
+    const competition = await DailyCompetition.findOne({ date: today });
+    if (!competition) return res.json({ message: 'No active competition' });
+    
+    const entry = competition.topEntries.find(e => e.userId.toString() === userId);
+    if (entry) {
+      entry.profit = profit;
+      
+      competition.topEntries.sort((a, b) => b.profit - a.profit);
+      competition.topEntries.forEach((e, idx) => {
+        e.rank = idx + 1;
+        if (idx === 0) e.prize = '🏆 Champion Badge + 500 Points';
+        else if (idx === 1) e.prize = '🥈 Runner Up Badge + 300 Points';
+        else if (idx === 2) e.prize = '🥉 Third Place Badge + 100 Points';
+        else e.prize = '🎖️ Participation Badge';
+      });
+      
+      await competition.save();
+    }
+    
+    res.json({ success: true, competition });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ============ BADGES & TUTORIALS API ROUTES ============
+
+// Get user's badges
+app.get('/api/badges/:userId', async (req, res) => {
+  try {
+    const badges = await Badge.find({ userId: req.params.userId });
+    res.json(badges);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Award badge to user
+app.post('/api/badges/award', async (req, res) => {
+  try {
+    const { userId, badgeId } = req.body;
+    const badgeInfo = AVAILABLE_BADGES[badgeId];
+    
+    if (!badgeInfo) {
+      return res.status(400).json({ message: 'Invalid badge ID' });
+    }
+    
+    const existing = await Badge.findOne({ userId, badgeId });
+    if (existing) {
+      return res.json({ message: 'Badge already awarded' });
+    }
+    
+    const badge = new Badge({
+      userId,
+      badgeId,
+      badgeName: badgeInfo.name,
+      badgeIcon: badgeInfo.icon,
+      description: badgeInfo.description
+    });
+    
+    await badge.save();
+    res.json({ success: true, badge });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get tutorial progress
+app.get('/api/tutorials/:userId', async (req, res) => {
+  try {
+    const tutorials = await TutorialProgress.find({ userId: req.params.userId });
+    res.json(tutorials);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Complete tutorial
+app.post('/api/tutorials/complete', async (req, res) => {
+  try {
+    const { userId, tutorialId, tutorialName, score } = req.body;
+    
+    let tutorial = await TutorialProgress.findOne({ userId, tutorialId });
+    if (!tutorial) {
+      tutorial = new TutorialProgress({ userId, tutorialId, tutorialName });
+    }
+    
+    tutorial.completed = true;
+    tutorial.completedAt = Date.now();
+    tutorial.score = score || 100;
+    await tutorial.save();
+    
+    res.json({ success: true, tutorial });
+  } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
