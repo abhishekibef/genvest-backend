@@ -402,19 +402,15 @@ app.post('/api/seed-courses', async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
 
-// ============ LIVE MARKET PRICES API ============
+// ============ LIVE MARKET PRICES API (Yahoo Finance Only - No Twelve Data) ============
 
-const TwelveData = require('@twelvedata/twelvedata-node').TwelveDataClient;
 const yahooFinance = require('yahoo-finance2').default;
-
-const twelvedata = new TwelveData({
-    apikey: process.env.TWELVE_DATA_API_KEY || 'f8700aeb354a4effbf4d8fca57ee83a1'
-});
 
 let priceCache = {};
 let lastCacheTime = null;
-const CACHE_DURATION = 5 * 60 * 1000;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
+// List of NSE stocks to track (add .NS for National Stock Exchange)
 const TRACKED_SYMBOLS = [
     'HDFCBANK.NS', 'ICICIBANK.NS', 'SBIN.NS', 'AXISBANK.NS', 'KOTAKBANK.NS',
     'TATAPOWER.NS', 'RELIANCE.NS', 'ZOMATO.NS', 'TCS.NS', 'INFY.NS'
@@ -428,57 +424,44 @@ app.get('/api/live-prices', async (req, res) => {
     try {
         const now = Date.now();
         
+        // Return cached prices if still fresh
         if (lastCacheTime && (now - lastCacheTime) < CACHE_DURATION && Object.keys(priceCache).length > 0) {
-            return res.json({ success: true, prices: priceCache, cached: true, lastUpdated: lastCacheTime });
-        }
-        
-        console.log('🔄 Fetching live prices...');
-        
-        let newPrices = {};
-        let usedFallback = false;
-        
-        try {
-            const results = await Promise.all(
-                TRACKED_SYMBOLS.map(symbol => twelvedata.quote(symbol).catch(() => null))
-            );
-            
-            results.forEach((quote, index) => {
-                if (quote && quote.price) {
-                    const baseSymbol = getBaseSymbol(TRACKED_SYMBOLS[index]);
-                    newPrices[baseSymbol] = {
-                        price: parseFloat(quote.price),
-                        change: quote.change || 0,
-                        changePercent: quote.percent_change || 0,
-                        source: 'twelvedata'
-                    };
-                }
-            });
-        } catch (tdError) {
-            usedFallback = true;
-            console.log('⚠️ Twelve Data failed, using Yahoo Finance');
-        }
-        
-        if (Object.keys(newPrices).length === 0) {
-            const quotes = await yahooFinance.quoteCombine(TRACKED_SYMBOLS);
-            quotes.forEach(quote => {
-                if (quote && quote.regularMarketPrice) {
-                    const baseSymbol = getBaseSymbol(quote.symbol);
-                    newPrices[baseSymbol] = {
-                        price: quote.regularMarketPrice,
-                        change: quote.regularMarketChange || 0,
-                        changePercent: quote.regularMarketChangePercent || 0,
-                        source: 'yahoo'
-                    };
-                }
+            return res.json({
+                success: true,
+                prices: priceCache,
+                cached: true,
+                lastUpdated: lastCacheTime
             });
         }
+        
+        console.log('🔄 Fetching live prices from Yahoo Finance...');
+        
+        // Fetch all quotes in one batch
+        const quotes = await yahooFinance.quoteCombine(TRACKED_SYMBOLS);
+        const newPrices = {};
+        
+        quotes.forEach(quote => {
+            if (quote && quote.regularMarketPrice) {
+                const baseSymbol = getBaseSymbol(quote.symbol);
+                newPrices[baseSymbol] = {
+                    price: quote.regularMarketPrice,
+                    change: quote.regularMarketChange || 0,
+                    changePercent: quote.regularMarketChangePercent || 0
+                };
+            }
+        });
         
         priceCache = newPrices;
         lastCacheTime = now;
         
-        console.log(`✅ Prices fetched (${usedFallback ? 'Yahoo Finance' : 'Twelve Data'}): ${Object.keys(newPrices).length} stocks`);
+        console.log(`✅ Fetched prices for ${Object.keys(newPrices).length} stocks`);
         
-        res.json({ success: true, prices: newPrices, cached: false, lastUpdated: now });
+        res.json({
+            success: true,
+            prices: newPrices,
+            cached: false,
+            lastUpdated: now
+        });
         
     } catch (error) {
         console.error('❌ Live prices error:', error);
