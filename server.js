@@ -97,38 +97,105 @@ app.get('/api/portfolio/:userId', async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
 
+// FIXED BUY ENDPOINT - Guaranteed cash deduction
 app.post('/api/portfolio/buy', async (req, res) => {
   try {
     const { userId, symbol, quantity, price, name, exchange } = req.body;
     const totalAmount = quantity * price;
+    
+    console.log(`📊 BUY REQUEST: User ${userId}, Symbol ${symbol}, Qty ${quantity}, Price ${price}, Total ${totalAmount}`);
+    
     const user = await User.findById(userId);
-    if (user.cash < totalAmount) return res.status(400).json({ message: 'Insufficient funds', success: false });
-    user.cash -= totalAmount;
+    if (!user) {
+      console.log(`❌ User not found: ${userId}`);
+      return res.status(404).json({ message: 'User not found', success: false });
+    }
+    
+    console.log(`💰 Current cash balance: ${user.cash}`);
+    
+    if (user.cash < totalAmount) {
+      console.log(`❌ Insufficient funds: Need ${totalAmount}, Have ${user.cash}`);
+      return res.status(400).json({ message: 'Insufficient funds', success: false });
+    }
+    
+    // DEDUCT CASH - This is the critical line
+    user.cash = user.cash - totalAmount;
     await user.save();
+    
+    console.log(`✅ Cash deducted. New balance: ${user.cash}`);
+    
+    // Update or create holding
     let holding = await Holding.findOne({ userId, symbol });
-    if (holding) { const newShares = holding.shares + quantity; const newAvgPrice = ((holding.shares * holding.avgPrice) + totalAmount) / newShares; holding.shares = newShares; holding.avgPrice = newAvgPrice; }
-    else { holding = new Holding({ userId, symbol, name: name || symbol, shares: quantity, avgPrice: price, exchange: exchange || 'NSE' }); }
-    await holding.save();
+    if (holding) {
+      const newShares = holding.shares + quantity;
+      const newAvgPrice = ((holding.shares * holding.avgPrice) + totalAmount) / newShares;
+      holding.shares = newShares;
+      holding.avgPrice = newAvgPrice;
+      console.log(`📈 Updated holding: ${symbol}, Shares: ${newShares}, Avg Price: ${newAvgPrice}`);
+    } else {
+      holding = new Holding({ userId, symbol, name: name || symbol, shares: quantity, avgPrice: price, exchange: exchange || 'NSE' });
+      await holding.save();
+      console.log(`📈 Created new holding: ${symbol}, Shares: ${quantity}, Avg Price: ${price}`);
+    }
+    
+    // Record transaction
     await new Transaction({ userId, symbol, type: 'BUY', quantity, price, totalAmount }).save();
-    res.json({ success: true, cashBalance: user.cash });
-  } catch (error) { res.status(500).json({ message: error.message, success: false }); }
+    console.log(`📝 Transaction recorded: BUY ${quantity} ${symbol}`);
+    
+    res.json({ success: true, cashBalance: user.cash, message: `Bought ${quantity} shares of ${symbol}` });
+  } catch (error) {
+    console.error('❌ Buy error:', error);
+    res.status(500).json({ message: error.message, success: false });
+  }
 });
 
+// FIXED SELL ENDPOINT - Guaranteed cash addition
 app.post('/api/portfolio/sell', async (req, res) => {
   try {
     const { userId, symbol, quantity, price } = req.body;
     const totalAmount = quantity * price;
+    
+    console.log(`📊 SELL REQUEST: User ${userId}, Symbol ${symbol}, Qty ${quantity}, Price ${price}, Total ${totalAmount}`);
+    
     const holding = await Holding.findOne({ userId, symbol });
-    if (!holding || holding.shares < quantity) return res.status(400).json({ message: 'Insufficient shares', success: false });
+    if (!holding || holding.shares < quantity) {
+      console.log(`❌ Insufficient shares: Have ${holding?.shares || 0}, Need ${quantity}`);
+      return res.status(400).json({ message: 'Insufficient shares', success: false });
+    }
+    
     const user = await User.findById(userId);
-    user.cash += totalAmount;
+    if (!user) {
+      console.log(`❌ User not found: ${userId}`);
+      return res.status(404).json({ message: 'User not found', success: false });
+    }
+    
+    console.log(`💰 Current cash balance: ${user.cash}`);
+    
+    // ADD CASH
+    user.cash = user.cash + totalAmount;
     await user.save();
+    
+    console.log(`✅ Cash added. New balance: ${user.cash}`);
+    
+    // Update holding
     holding.shares -= quantity;
-    if (holding.shares === 0) await holding.deleteOne();
-    else await holding.save();
+    if (holding.shares === 0) {
+      await holding.deleteOne();
+      console.log(`📈 Holding deleted: ${symbol}`);
+    } else {
+      await holding.save();
+      console.log(`📈 Updated holding: ${symbol}, Remaining shares: ${holding.shares}`);
+    }
+    
+    // Record transaction
     await new Transaction({ userId, symbol, type: 'SELL', quantity, price, totalAmount }).save();
-    res.json({ success: true, cashBalance: user.cash });
-  } catch (error) { res.status(500).json({ message: error.message, success: false }); }
+    console.log(`📝 Transaction recorded: SELL ${quantity} ${symbol}`);
+    
+    res.json({ success: true, cashBalance: user.cash, message: `Sold ${quantity} shares of ${symbol}` });
+  } catch (error) {
+    console.error('❌ Sell error:', error);
+    res.status(500).json({ message: error.message, success: false });
+  }
 });
 
 app.get('/api/transactions/:userId', async (req, res) => {
