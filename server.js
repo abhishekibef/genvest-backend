@@ -97,7 +97,6 @@ app.get('/api/portfolio/:userId', async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
 
-// FIXED BUY ENDPOINT - Guaranteed cash deduction
 app.post('/api/portfolio/buy', async (req, res) => {
   try {
     const { userId, symbol, quantity, price, name, exchange } = req.body;
@@ -118,13 +117,11 @@ app.post('/api/portfolio/buy', async (req, res) => {
       return res.status(400).json({ message: 'Insufficient funds', success: false });
     }
     
-    // DEDUCT CASH - This is the critical line
     user.cash = user.cash - totalAmount;
     await user.save();
     
     console.log(`✅ Cash deducted. New balance: ${user.cash}`);
     
-    // Update or create holding
     let holding = await Holding.findOne({ userId, symbol });
     if (holding) {
       const newShares = holding.shares + quantity;
@@ -138,7 +135,6 @@ app.post('/api/portfolio/buy', async (req, res) => {
       console.log(`📈 Created new holding: ${symbol}, Shares: ${quantity}, Avg Price: ${price}`);
     }
     
-    // Record transaction
     await new Transaction({ userId, symbol, type: 'BUY', quantity, price, totalAmount }).save();
     console.log(`📝 Transaction recorded: BUY ${quantity} ${symbol}`);
     
@@ -149,7 +145,6 @@ app.post('/api/portfolio/buy', async (req, res) => {
   }
 });
 
-// FIXED SELL ENDPOINT - Guaranteed cash addition
 app.post('/api/portfolio/sell', async (req, res) => {
   try {
     const { userId, symbol, quantity, price } = req.body;
@@ -171,13 +166,11 @@ app.post('/api/portfolio/sell', async (req, res) => {
     
     console.log(`💰 Current cash balance: ${user.cash}`);
     
-    // ADD CASH
     user.cash = user.cash + totalAmount;
     await user.save();
     
     console.log(`✅ Cash added. New balance: ${user.cash}`);
     
-    // Update holding
     holding.shares -= quantity;
     if (holding.shares === 0) {
       await holding.deleteOne();
@@ -187,7 +180,6 @@ app.post('/api/portfolio/sell', async (req, res) => {
       console.log(`📈 Updated holding: ${symbol}, Remaining shares: ${holding.shares}`);
     }
     
-    // Record transaction
     await new Transaction({ userId, symbol, type: 'SELL', quantity, price, totalAmount }).save();
     console.log(`📝 Transaction recorded: SELL ${quantity} ${symbol}`);
     
@@ -409,6 +401,7 @@ app.post('/api/seed-courses', async (req, res) => {
     res.json({ success: true, message: '✅ Courses seeded!', courses: 1, levels: 1, lessons: 2 });
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
+
 // ============ LIVE MARKET PRICES API ============
 
 // CORRECT IMPORTS
@@ -440,7 +433,6 @@ app.get('/api/live-prices', async (req, res) => {
     try {
         const now = Date.now();
         
-        // Return cached prices if still fresh
         if (lastCacheTime && (now - lastCacheTime) < CACHE_DURATION && Object.keys(priceCache).length > 0) {
             return res.json({
                 success: true,
@@ -452,12 +444,10 @@ app.get('/api/live-prices', async (req, res) => {
         
         console.log('🔄 Fetching live prices...');
         
-        // Try Twelve Data first (primary source)
+        // Try Twelve Data first
         try {
             const quotes = await Promise.all(
-                TRACKED_SYMBOLS.map(symbol => 
-                    twelvedata.quote(symbol).catch(e => null)
-                )
+                TRACKED_SYMBOLS.map(symbol => twelvedata.quote(symbol).catch(e => null))
             );
             
             const newPrices = {};
@@ -513,5 +503,6 @@ app.get('/api/live-prices', async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 });
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
