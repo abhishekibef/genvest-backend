@@ -402,11 +402,9 @@ app.post('/api/seed-courses', async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
 
-// ============ LIVE MARKET PRICES API (Working Mock Version) ============
+// ============ LIVE MARKET PRICES API (Mock - Works 100%) ============
 
-// This returns mock data that looks like live market prices
-// It simulates small price movements every few minutes
-let mockPrices = {
+const mockPrices = {
     'HDFCBANK': { price: 1610.00, change: 8.50, changePercent: 0.53 },
     'ICICIBANK': { price: 1291.80, change: 27.50, changePercent: 2.17 },
     'SBIN': { price: 969.60, change: 20.40, changePercent: 2.14 },
@@ -419,21 +417,6 @@ let mockPrices = {
     'INFY': { price: 1480.50, change: 12.30, changePercent: 0.84 }
 };
 
-// Update mock prices randomly every 5 minutes to simulate market movement
-setInterval(() => {
-    Object.keys(mockPrices).forEach(symbol => {
-        const randomChange = (Math.random() - 0.5) * 10;
-        const newPrice = mockPrices[symbol].price + randomChange;
-        const changePercent = (randomChange / mockPrices[symbol].price) * 100;
-        mockPrices[symbol] = {
-            price: parseFloat(newPrice.toFixed(2)),
-            change: parseFloat(randomChange.toFixed(2)),
-            changePercent: parseFloat(changePercent.toFixed(2))
-        };
-    });
-    console.log('🔄 Mock market prices updated');
-}, 5 * 60 * 1000); // Every 5 minutes
-
 app.get('/api/live-prices', async (req, res) => {
     try {
         res.json({
@@ -441,7 +424,7 @@ app.get('/api/live-prices', async (req, res) => {
             prices: mockPrices,
             cached: false,
             lastUpdated: Date.now(),
-            message: 'Demo mode - Static prices. Real-time coming soon!'
+            message: 'Demo mode - Static mock prices'
         });
     } catch (error) {
         console.error('❌ Live prices error:', error);
