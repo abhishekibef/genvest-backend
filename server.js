@@ -683,6 +683,277 @@ app.post('/api/tutorials/complete', async (req, res) => {
   }
 });
 
+// ============ LEARN MODULE SCHEMAS ============
+
+// 1. Course Schema
+const courseSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: String,
+  level: { type: String, enum: ['Beginner', 'Intermediate', 'Advanced'], default: 'Beginner' },
+  xpReward: { type: Number, default: 100 },
+  isActive: { type: Boolean, default: true },
+  order: Number,
+  icon: { type: String, default: '📚' }
+});
+
+// 2. Level Schema
+const levelSchema = new mongoose.Schema({
+  courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true },
+  title: String,
+  description: String,
+  order: Number,
+  xpReward: { type: Number, default: 50 },
+  isLocked: { type: Boolean, default: true }
+});
+
+// 3. Lesson Schema
+const lessonSchema = new mongoose.Schema({
+  levelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Level', required: true },
+  title: String,
+  content: String,
+  explanation: String,
+  quiz: [{
+    question: String,
+    options: [String],
+    correctAnswer: String,
+    explanation: String
+  }],
+  xpReward: { type: Number, default: 20 }
+});
+
+// 4. User Progress Schema
+const userProgressSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  completedLessons: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lesson' }],
+  totalXP: { type: Number, default: 0 },
+  currentLevelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Level' },
+  dailyStreak: { type: Number, default: 0 },
+  lastActivityDate: Date,
+  hearts: { type: Number, default: 5 },
+  gems: { type: Number, default: 100 }
+});
+
+// Create models
+const Course = mongoose.model('Course', courseSchema);
+const Level = mongoose.model('Level', levelSchema);
+const Lesson = mongoose.model('Lesson', lessonSchema);
+const UserProgress = mongoose.model('UserProgress', userProgressSchema);
+
+// ============ LEARN MODULE API ROUTES ============
+
+// Get all courses with levels
+app.get('/api/learn/courses', async (req, res) => {
+  try {
+    const courses = await Course.find().sort({ order: 1 });
+    const coursesWithLevels = await Promise.all(courses.map(async (course) => {
+      const levels = await Level.find({ courseId: course._id }).sort({ order: 1 });
+      return { ...course.toObject(), levels };
+    }));
+    res.json(coursesWithLevels);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get user's progress
+app.get('/api/learn/progress/:userId', async (req, res) => {
+  try {
+    let progress = await UserProgress.findOne({ userId: req.params.userId });
+    if (!progress) {
+      progress = new UserProgress({ userId: req.params.userId });
+      await progress.save();
+    }
+    res.json(progress);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get lessons for a specific level (checks if unlocked)
+app.get('/api/learn/lessons/:levelId/:userId', async (req, res) => {
+  try {
+    const { levelId, userId } = req.params;
+    
+    // Check if level is unlocked for this user
+    const progress = await UserProgress.findOne({ userId });
+    const level = await Level.findById(levelId);
+    
+    if (level.isLocked && (!progress || !progress.completedLessons.includes(levelId))) {
+      return res.status(403).json({ message: 'Level is locked. Complete previous level first.' });
+    }
+    
+    const lessons = await Lesson.find({ levelId }).sort({ order: 1 });
+    res.json(lessons);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Complete a lesson (award XP, update progress)
+app.post('/api/learn/complete-lesson', async (req, res) => {
+  try {
+    const { userId, lessonId, quizAnswers, score } = req.body;
+    
+    let progress = await UserProgress.findOne({ userId });
+    if (!progress) {
+      progress = new UserProgress({ userId });
+    }
+    
+    // Check if lesson already completed
+    if (progress.completedLessons.includes(lessonId)) {
+      return res.json({ message: 'Lesson already completed', progress });
+    }
+    
+    const lesson = await Lesson.findById(lessonId);
+    if (!lesson) {
+      return res.status(404).json({ message: 'Lesson not found' });
+    }
+    
+    // Calculate XP based on score
+    const earnedXP = Math.floor(lesson.xpReward * (score / 100));
+    
+    // Update progress
+    progress.completedLessons.push(lessonId);
+    progress.totalXP += earnedXP;
+    progress.lastActivityDate = new Date();
+    
+    // Update daily streak
+    const lastDate = progress.lastActivityDate ? new Date(progress.lastActivityDate) : null;
+    const today = new Date();
+    if (lastDate && today.toDateString() !== lastDate.toDateString()) {
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      if (lastDate.toDateString() === yesterday.toDateString()) {
+        progress.dailyStreak += 1;
+      } else {
+        progress.dailyStreak = 1;
+      }
+    } else if (!lastDate) {
+      progress.dailyStreak = 1;
+    }
+    
+    // Refill hearts (1 heart per completed lesson, max 5)
+    progress.hearts = Math.min(progress.hearts + 1, 5);
+    
+    await progress.save();
+    
+    // Check if level is complete and unlock next level
+    const allLessonsInLevel = await Lesson.find({ levelId: lesson.levelId });
+    const completedInLevel = await Promise.all(allLessonsInLevel.map(l => 
+      progress.completedLessons.includes(l._id)
+    ));
+    
+    let nextLevelUnlocked = false;
+    if (completedInLevel.filter(Boolean).length === allLessonsInLevel.length) {
+      // All lessons in this level are complete, unlock next level
+      const currentLevel = await Level.findById(lesson.levelId);
+      const nextLevel = await Level.findOne({ courseId: currentLevel.courseId, order: currentLevel.order + 1 });
+      if (nextLevel) {
+        nextLevel.isLocked = false;
+        await nextLevel.save();
+        nextLevelUnlocked = true;
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      earnedXP, 
+      totalXP: progress.totalXP,
+      dailyStreak: progress.dailyStreak,
+      hearts: progress.hearts,
+      nextLevelUnlocked,
+      progress 
+    });
+  } catch (error) {
+    console.error('Complete lesson error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get user's leaderboard rank (based on XP)
+app.get('/api/learn/leaderboard/:userId', async (req, res) => {
+  try {
+    const allUsers = await UserProgress.find().sort({ totalXP: -1 }).limit(100).populate('userId', 'name');
+    const userRank = await UserProgress.findOne({ userId: req.params.userId });
+    
+    let rank = null;
+    if (userRank) {
+      rank = await UserProgress.countDocuments({ totalXP: { $gt: userRank.totalXP } }) + 1;
+    }
+    
+    res.json({ leaderboard: allUsers, userRank: rank, userXP: userRank?.totalXP || 0 });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Use hearts to retry a quiz
+app.post('/api/learn/use-heart', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const progress = await UserProgress.findOne({ userId });
+    
+    if (!progress) {
+      return res.status(404).json({ message: 'User progress not found' });
+    }
+    
+    if (progress.hearts <= 0) {
+      return res.status(400).json({ message: 'No hearts left! Wait for refill or spend gems.' });
+    }
+    
+    progress.hearts -= 1;
+    await progress.save();
+    
+    res.json({ success: true, hearts: progress.hearts });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Refill hearts with gems
+app.post('/api/learn/refill-hearts', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const progress = await UserProgress.findOne({ userId });
+    
+    if (!progress) {
+      return res.status(404).json({ message: 'User progress not found' });
+    }
+    
+    const HEART_REFILL_COST = 50;
+    if (progress.gems < HEART_REFILL_COST) {
+      return res.status(400).json({ message: 'Not enough gems!' });
+    }
+    
+    progress.gems -= HEART_REFILL_COST;
+    progress.hearts = 5;
+    await progress.save();
+    
+    res.json({ success: true, hearts: progress.hearts, gems: progress.gems });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Award gems (for daily login, completing courses, etc.)
+app.post('/api/learn/award-gems', async (req, res) => {
+  try {
+    const { userId, amount, reason } = req.body;
+    const progress = await UserProgress.findOne({ userId });
+    
+    if (!progress) {
+      return res.status(404).json({ message: 'User progress not found' });
+    }
+    
+    progress.gems += amount;
+    await progress.save();
+    
+    res.json({ success: true, gems: progress.gems, reason });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
