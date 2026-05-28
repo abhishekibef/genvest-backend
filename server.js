@@ -296,11 +296,9 @@ app.post('/api/portfolio/buy', async (req, res) => {
       return res.status(400).json({ message: 'Insufficient funds', success: false });
     }
     
-    // Deduct cash
     user.cash -= totalAmount;
     await user.save();
     
-    // Update or create holding
     let holding = await Holding.findOne({ userId, symbol });
     if (holding) {
       const newShares = holding.shares + quantity;
@@ -320,7 +318,6 @@ app.post('/api/portfolio/buy', async (req, res) => {
     }
     await holding.save();
     
-    // Record transaction
     const transaction = new Transaction({ 
       userId, 
       symbol, 
@@ -350,7 +347,6 @@ app.post('/api/portfolio/sell', async (req, res) => {
       return res.status(400).json({ message: 'Insufficient shares', success: false });
     }
     
-    // Add cash
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -359,7 +355,6 @@ app.post('/api/portfolio/sell', async (req, res) => {
     user.cash += totalAmount;
     await user.save();
     
-    // Update holding
     holding.shares -= quantity;
     if (holding.shares === 0) {
       await holding.deleteOne();
@@ -367,7 +362,6 @@ app.post('/api/portfolio/sell', async (req, res) => {
       await holding.save();
     }
     
-    // Record transaction
     const transaction = new Transaction({ 
       userId, 
       symbol, 
@@ -401,7 +395,6 @@ app.get('/api/transactions/:userId', async (req, res) => {
 
 // ============ LEADERBOARD, BADGES & COMPETITION SCHEMAS ============
 
-// Leaderboard Stats Schema
 const leaderboardStatsSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
   userName: { type: String, required: true },
@@ -417,7 +410,6 @@ const leaderboardStatsSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-// Daily Competition Schema
 const dailyCompetitionSchema = new mongoose.Schema({
   date: { type: String, required: true, unique: true },
   active: { type: Boolean, default: true },
@@ -433,7 +425,6 @@ const dailyCompetitionSchema = new mongoose.Schema({
   endTime: { type: Date, default: () => new Date(Date.now() + 24 * 60 * 60 * 1000) }
 });
 
-// Badge Schema
 const badgeSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   badgeId: { type: String, required: true },
@@ -443,7 +434,6 @@ const badgeSchema = new mongoose.Schema({
   earnedAt: { type: Date, default: Date.now }
 });
 
-// Tutorial Progress Schema
 const tutorialProgressSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   tutorialId: { type: String, required: true },
@@ -458,7 +448,6 @@ const DailyCompetition = mongoose.model('DailyCompetition', dailyCompetitionSche
 const Badge = mongoose.model('Badge', badgeSchema);
 const TutorialProgress = mongoose.model('TutorialProgress', tutorialProgressSchema);
 
-// Available badges
 const AVAILABLE_BADGES = {
   'first_trade': { name: 'First Trade', icon: '🎯', description: 'Completed your first trade' },
   'profit_master': { name: 'Profit Master', icon: '📈', description: 'Made 10% profit overall' },
@@ -470,7 +459,6 @@ const AVAILABLE_BADGES = {
 
 // ============ LEADERBOARD API ROUTES ============
 
-// Update leaderboard stats for a user
 app.post('/api/leaderboard/update', async (req, res) => {
   try {
     const { userId, userName, netWorth, profit, profitPercentage, tradesCount } = req.body;
@@ -489,7 +477,6 @@ app.post('/api/leaderboard/update', async (req, res) => {
     
     await stats.save();
     
-    // Update rankings
     const allUsers = await LeaderboardStats.find().sort({ netWorth: -1 });
     for (let i = 0; i < allUsers.length; i++) {
       allUsers[i].allTimeRank = i + 1;
@@ -502,7 +489,6 @@ app.post('/api/leaderboard/update', async (req, res) => {
   }
 });
 
-// Get leaderboard
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const { period = 'all', limit = 50 } = req.query;
@@ -522,7 +508,6 @@ app.get('/api/leaderboard', async (req, res) => {
   }
 });
 
-// Get user rank
 app.get('/api/leaderboard/rank/:userId', async (req, res) => {
   try {
     const stats = await LeaderboardStats.findOne({ userId: req.params.userId });
@@ -539,7 +524,6 @@ app.get('/api/leaderboard/rank/:userId', async (req, res) => {
 
 // ============ COMPETITION API ROUTES ============
 
-// Get today's competition
 app.get('/api/competition/today', async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
@@ -556,7 +540,6 @@ app.get('/api/competition/today', async (req, res) => {
   }
 });
 
-// Join competition
 app.post('/api/competition/join', async (req, res) => {
   try {
     const { userId, userName } = req.body;
@@ -579,7 +562,6 @@ app.post('/api/competition/join', async (req, res) => {
   }
 });
 
-// Update competition entry
 app.post('/api/competition/update', async (req, res) => {
   try {
     const { userId, profit } = req.body;
@@ -612,7 +594,6 @@ app.post('/api/competition/update', async (req, res) => {
 
 // ============ BADGES & TUTORIALS API ROUTES ============
 
-// Get user's badges
 app.get('/api/badges/:userId', async (req, res) => {
   try {
     const badges = await Badge.find({ userId: req.params.userId });
@@ -622,7 +603,6 @@ app.get('/api/badges/:userId', async (req, res) => {
   }
 });
 
-// Award badge to user
 app.post('/api/badges/award', async (req, res) => {
   try {
     const { userId, badgeId } = req.body;
@@ -652,7 +632,6 @@ app.post('/api/badges/award', async (req, res) => {
   }
 });
 
-// Get tutorial progress
 app.get('/api/tutorials/:userId', async (req, res) => {
   try {
     const tutorials = await TutorialProgress.find({ userId: req.params.userId });
@@ -662,7 +641,6 @@ app.get('/api/tutorials/:userId', async (req, res) => {
   }
 });
 
-// Complete tutorial
 app.post('/api/tutorials/complete', async (req, res) => {
   try {
     const { userId, tutorialId, tutorialName, score } = req.body;
@@ -685,7 +663,6 @@ app.post('/api/tutorials/complete', async (req, res) => {
 
 // ============ LEARN MODULE SCHEMAS ============
 
-// 1. Course Schema
 const courseSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: String,
@@ -696,7 +673,6 @@ const courseSchema = new mongoose.Schema({
   icon: { type: String, default: '📚' }
 });
 
-// 2. Level Schema
 const levelSchema = new mongoose.Schema({
   courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true },
   title: String,
@@ -706,7 +682,6 @@ const levelSchema = new mongoose.Schema({
   isLocked: { type: Boolean, default: true }
 });
 
-// 3. Lesson Schema
 const lessonSchema = new mongoose.Schema({
   levelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Level', required: true },
   title: String,
@@ -721,7 +696,6 @@ const lessonSchema = new mongoose.Schema({
   xpReward: { type: Number, default: 20 }
 });
 
-// 4. User Progress Schema
 const userProgressSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
   completedLessons: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lesson' }],
@@ -733,7 +707,6 @@ const userProgressSchema = new mongoose.Schema({
   gems: { type: Number, default: 100 }
 });
 
-// Create models
 const Course = mongoose.model('Course', courseSchema);
 const Level = mongoose.model('Level', levelSchema);
 const Lesson = mongoose.model('Lesson', lessonSchema);
@@ -741,7 +714,6 @@ const UserProgress = mongoose.model('UserProgress', userProgressSchema);
 
 // ============ LEARN MODULE API ROUTES ============
 
-// Get all courses with levels
 app.get('/api/learn/courses', async (req, res) => {
   try {
     const courses = await Course.find().sort({ order: 1 });
@@ -755,7 +727,6 @@ app.get('/api/learn/courses', async (req, res) => {
   }
 });
 
-// Get user's progress
 app.get('/api/learn/progress/:userId', async (req, res) => {
   try {
     let progress = await UserProgress.findOne({ userId: req.params.userId });
@@ -769,12 +740,9 @@ app.get('/api/learn/progress/:userId', async (req, res) => {
   }
 });
 
-// Get lessons for a specific level (checks if unlocked)
 app.get('/api/learn/lessons/:levelId/:userId', async (req, res) => {
   try {
     const { levelId, userId } = req.params;
-    
-    // Check if level is unlocked for this user
     const progress = await UserProgress.findOne({ userId });
     const level = await Level.findById(levelId);
     
@@ -789,17 +757,15 @@ app.get('/api/learn/lessons/:levelId/:userId', async (req, res) => {
   }
 });
 
-// Complete a lesson (award XP, update progress)
 app.post('/api/learn/complete-lesson', async (req, res) => {
   try {
-    const { userId, lessonId, quizAnswers, score } = req.body;
+    const { userId, lessonId, score } = req.body;
     
     let progress = await UserProgress.findOne({ userId });
     if (!progress) {
       progress = new UserProgress({ userId });
     }
     
-    // Check if lesson already completed
     if (progress.completedLessons.includes(lessonId)) {
       return res.json({ message: 'Lesson already completed', progress });
     }
@@ -809,15 +775,12 @@ app.post('/api/learn/complete-lesson', async (req, res) => {
       return res.status(404).json({ message: 'Lesson not found' });
     }
     
-    // Calculate XP based on score
     const earnedXP = Math.floor(lesson.xpReward * (score / 100));
     
-    // Update progress
     progress.completedLessons.push(lessonId);
     progress.totalXP += earnedXP;
     progress.lastActivityDate = new Date();
     
-    // Update daily streak
     const lastDate = progress.lastActivityDate ? new Date(progress.lastActivityDate) : null;
     const today = new Date();
     if (lastDate && today.toDateString() !== lastDate.toDateString()) {
@@ -832,12 +795,9 @@ app.post('/api/learn/complete-lesson', async (req, res) => {
       progress.dailyStreak = 1;
     }
     
-    // Refill hearts (1 heart per completed lesson, max 5)
     progress.hearts = Math.min(progress.hearts + 1, 5);
-    
     await progress.save();
     
-    // Check if level is complete and unlock next level
     const allLessonsInLevel = await Lesson.find({ levelId: lesson.levelId });
     const completedInLevel = await Promise.all(allLessonsInLevel.map(l => 
       progress.completedLessons.includes(l._id)
@@ -845,7 +805,6 @@ app.post('/api/learn/complete-lesson', async (req, res) => {
     
     let nextLevelUnlocked = false;
     if (completedInLevel.filter(Boolean).length === allLessonsInLevel.length) {
-      // All lessons in this level are complete, unlock next level
       const currentLevel = await Level.findById(lesson.levelId);
       const nextLevel = await Level.findOne({ courseId: currentLevel.courseId, order: currentLevel.order + 1 });
       if (nextLevel) {
@@ -870,7 +829,6 @@ app.post('/api/learn/complete-lesson', async (req, res) => {
   }
 });
 
-// Get user's leaderboard rank (based on XP)
 app.get('/api/learn/leaderboard/:userId', async (req, res) => {
   try {
     const allUsers = await UserProgress.find().sort({ totalXP: -1 }).limit(100).populate('userId', 'name');
@@ -887,7 +845,6 @@ app.get('/api/learn/leaderboard/:userId', async (req, res) => {
   }
 });
 
-// Use hearts to retry a quiz
 app.post('/api/learn/use-heart', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -910,7 +867,6 @@ app.post('/api/learn/use-heart', async (req, res) => {
   }
 });
 
-// Refill hearts with gems
 app.post('/api/learn/refill-hearts', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -935,7 +891,6 @@ app.post('/api/learn/refill-hearts', async (req, res) => {
   }
 });
 
-// Award gems (for daily login, completing courses, etc.)
 app.post('/api/learn/award-gems', async (req, res) => {
   try {
     const { userId, amount, reason } = req.body;
@@ -954,16 +909,14 @@ app.post('/api/learn/award-gems', async (req, res) => {
   }
 });
 
-// ============ SEED COURSES API (RUN ONCE TO ADD SAMPLE COURSES) ============
+// ============ SEED COURSES API (RUN ONCE) ============
 app.post('/api/seed-courses', async (req, res) => {
   try {
-    // Check if courses already exist
     const existingCourses = await Course.countDocuments();
     if (existingCourses > 0) {
       return res.json({ message: 'Courses already exist!', count: existingCourses });
     }
 
-    // Create Course 1
     const course1 = new Course({
       title: '📈 Stock Market Wizard',
       description: 'Learn the fundamentals of stock market investing from scratch. Perfect for beginners!',
@@ -975,7 +928,6 @@ app.post('/api/seed-courses', async (req, res) => {
     });
     await course1.save();
 
-    // Create Level 1
     const level1 = new Level({
       courseId: course1._id,
       title: 'What is a Stock?',
@@ -986,7 +938,6 @@ app.post('/api/seed-courses', async (req, res) => {
     });
     await level1.save();
 
-    // Lesson 1
     const lesson1 = new Lesson({
       levelId: level1._id,
       title: 'What is a Share?',
@@ -1005,6 +956,36 @@ app.post('/api/seed-courses', async (req, res) => {
     });
     await lesson1.save();
 
-    // Lesson 2
     const lesson2 = new Lesson({
-      levelId: level1
+      levelId: level1._id,
+      title: 'Why Do Stock Prices Move?',
+      content: 'Stock prices change due to supply and demand. When more people want to buy than sell, price goes up.\n\n### Factors:\n- Company performance\n- Economic news\n- Market sentiment\n\n*Takeaway: News and earnings drive stock prices.',
+      explanation: 'Understanding price movements helps you trade better.',
+      xpReward: 20,
+      order: 2,
+      quiz: [
+        {
+          question: 'What primarily drives stock price changes?',
+          options: ['Company size', 'Supply and demand', 'CEO salary', 'Office location'],
+          correctAnswer: 'Supply and demand',
+          explanation: 'Stock prices change based on buyers and sellers.'
+        }
+      ]
+    });
+    await lesson2.save();
+
+    res.json({ 
+      success: true,
+      message: '✅ Courses seeded successfully!', 
+      courses: 1, 
+      levels: 1, 
+      lessons: 2 
+    });
+  } catch (error) {
+    console.error('Seed error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () =>
