@@ -954,7 +954,57 @@ app.post('/api/learn/award-gems', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+// ============ SEED COURSES API (RUN ONCE TO ADD SAMPLE COURSES) ============
+app.post('/api/seed-courses', async (req, res) => {
+  try {
+    // Check if courses already exist
+    const existingCourses = await Course.countDocuments();
+    if (existingCourses > 0) {
+      return res.json({ message: 'Courses already exist!', count: existingCourses });
+    }
+
+    // Create Course 1
+    const course1 = new Course({
+      title: '📈 Stock Market Wizard',
+      description: 'Learn the fundamentals of stock market investing from scratch. Perfect for beginners!',
+      level: 'Beginner',
+      xpReward: 100,
+      isActive: true,
+      order: 1,
+      icon: '📈'
+    });
+    await course1.save();
+
+    // Create Level 1
+    const level1 = new Level({
+      courseId: course1._id,
+      title: 'What is a Stock?',
+      description: 'Understanding the basics of stocks and ownership',
+      order: 1,
+      xpReward: 50,
+      isLocked: false
+    });
+    await level1.save();
+
+    // Lesson 1
+    const lesson1 = new Lesson({
+      levelId: level1._id,
+      title: 'What is a Share?',
+      content: 'A share represents a unit of ownership in a company. When you buy a share, you become a partial owner.\n\n### Key Concepts:\n- Shares are traded on stock exchanges like NSE and BSE\n- Price is determined by supply and demand\n- Companies issue shares to raise capital\n\n*Takeaway: Owning shares means owning a piece of the company!',
+      explanation: 'Understanding shares is the foundation of stock market investing.',
+      xpReward: 20,
+      order: 1,
+      quiz: [
+        {
+          question: 'What does a share represent?',
+          options: ['A loan to the company', 'Unit of ownership', 'Guaranteed profit', 'Bank deposit'],
+          correctAnswer: 'Unit of ownership',
+          explanation: 'A share represents partial ownership in a company.'
+        }
+      ]
+    });
+    await lesson1.save();
+
+    // Lesson 2
+    const lesson2 = new Lesson({
+      levelId: level1
