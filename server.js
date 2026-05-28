@@ -199,6 +199,49 @@ app.get('/api/verify-token', async (req, res) => {
   }
 });
 
+// ============ USER PROFILE API ROUTES ============
+
+// Get user by ID
+app.get('/api/user/:userId', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select('-__v');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Update user name
+app.put('/api/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { name } = req.body;
+    
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { name },
+      { new: true }
+    );
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json({
+      id: user._id,
+      name: user.name,
+      username: user.username,
+      cash: user.cash
+    });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // ============ PORTFOLIO API ROUTES ============
 
 // Get user's portfolio (holdings + cash balance)
