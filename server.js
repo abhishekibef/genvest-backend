@@ -402,15 +402,27 @@ app.post('/api/seed-courses', async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
 
-// ============ LIVE MARKET PRICES API (Yahoo Finance Only - No Twelve Data) ============
+// ============ LIVE MARKET PRICES API (Yahoo Finance Only) ============
 
-const yahooFinance = require('yahoo-finance2').default;
+// Dynamic import to work around Node.js module exports issue
+let yahooFinance;
+
+async function initYahooFinance() {
+  try {
+    const module = await import('yahoo-finance2');
+    yahooFinance = module.default;
+    console.log('✅ Yahoo Finance module loaded successfully');
+  } catch (err) {
+    console.error('Failed to load Yahoo Finance:', err.message);
+  }
+}
+
+initYahooFinance();
 
 let priceCache = {};
 let lastCacheTime = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 5 * 60 * 1000;
 
-// List of NSE stocks to track (add .NS for National Stock Exchange)
 const TRACKED_SYMBOLS = [
     'HDFCBANK.NS', 'ICICIBANK.NS', 'SBIN.NS', 'AXISBANK.NS', 'KOTAKBANK.NS',
     'TATAPOWER.NS', 'RELIANCE.NS', 'ZOMATO.NS', 'TCS.NS', 'INFY.NS'
@@ -424,7 +436,6 @@ app.get('/api/live-prices', async (req, res) => {
     try {
         const now = Date.now();
         
-        // Return cached prices if still fresh
         if (lastCacheTime && (now - lastCacheTime) < CACHE_DURATION && Object.keys(priceCache).length > 0) {
             return res.json({
                 success: true,
@@ -434,9 +445,15 @@ app.get('/api/live-prices', async (req, res) => {
             });
         }
         
+        if (!yahooFinance) {
+            return res.status(503).json({ 
+                success: false, 
+                message: 'Yahoo Finance module is loading. Please try again in a moment.'
+            });
+        }
+        
         console.log('🔄 Fetching live prices from Yahoo Finance...');
         
-        // Fetch all quotes in one batch
         const quotes = await yahooFinance.quoteCombine(TRACKED_SYMBOLS);
         const newPrices = {};
         
