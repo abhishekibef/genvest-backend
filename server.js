@@ -409,6 +409,128 @@ app.post('/api/seed-courses', async (req, res) => {
     res.json({ success: true, message: '✅ Courses seeded!', courses: 1, levels: 1, lessons: 2 });
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
+// ============ LIVE MARKET PRICES API (Twelve Data + Yahoo Finance Fallback) ============
 
+// Import required packages
+const TwelveData = require('twelvedata');
+const yahooFinance = require('yahoo-finance2').default;
+
+// Initialize Twelve Data with your API key
+const twelvedata = new TwelveData({
+    key: process.env.TWELVE_DATA_API_KEY || 'f8700aeb354a4effbf4d8fca57ee83a1'
+});
+
+// Cache to reduce API calls (prevents hitting rate limits)
+let priceCache = {};
+let lastCacheTime = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// List of stocks to track (must match your INDIAN_MARKET_DATABASE symbols)
+const TRACKED_SYMBOLS = [
+    'HDFCBANK', 'ICICIBANK', 'SBIN', 'AXISBANK', 'KOTAKBANK',
+    'TATAPOWER', 'RELIANCE', 'ZOMATO', 'TCS', 'INFY'
+];
+
+// Function to fetch live price with fallback
+async function fetchLivePrice(symbol) {
+    const nseSymbol = `${symbol}.NS`; // NSE format for Twelve Data
+    
+    try {
+        // Try Twelve Data first (primary source)
+        const response = await twelvedata.quote({ symbol: nseSymbol });
+        if (response && response.price) {
+            return {
+                price: parseFloat(response.price),
+                change: response.change || 0,
+                changePercent: response.percent_change || 0,
+                source: 'twelvedata'
+            };
+        }
+    } catch (error) {
+        console.warn(`⚠️ Twelve Data failed for ${symbol}:`, error.message);
+    }
+    
+    // Fallback to Yahoo Finance
+    try {
+        const quote = await yahooFinance.quote(nseSymbol);
+        if (quote && quote.regularMarketPrice) {
+            return {
+                price: quote.regularMarketPrice,
+                change: quote.regularMarketChange || 0,
+                changePercent: quote.regularMarketChangePercent || 0,
+                source: 'yahoo'
+            };
+        }
+    } catch (error) {
+        console.warn(`⚠️ Yahoo Finance failed for ${symbol}:`, error.message);
+    }
+    
+    return null;
+}
+
+// Endpoint to get live prices for all tracked stocks
+app.get('/api/live-prices', async (req, res) => {
+    try {
+        const now = Date.now();
+        
+        // Return cached prices if still fresh
+        if (lastCacheTime && (now - lastCacheTime) < CACHE_DURATION && Object.keys(priceCache).length > 0) {
+            console.log('📦 Returning cached prices');
+            return res.json({
+                success: true,
+                prices: priceCache,
+                cached: true,
+                lastUpdated: lastCacheTime
+            });
+        }
+        
+        console.log('🔄 Fetching fresh live prices...');
+        
+        // Fetch prices for all symbols in parallel
+        const pricePromises = TRACKED_SYMBOLS.map(symbol => fetchLivePrice(symbol));
+        const results = await Promise.all(pricePromises);
+        
+        // Build the price cache
+        const newPrices = {};
+        TRACKED_SYMBOLS.forEach((symbol, index) => {
+            if (results[index]) {
+                newPrices[symbol] = results[index];
+            }
+        });
+        
+        // Update cache
+        priceCache = newPrices;
+        lastCacheTime = now;
+        
+        console.log(`✅ Fetched prices for ${Object.keys(newPrices).length} stocks`);
+        
+        res.json({
+            success: true,
+            prices: newPrices,
+            cached: false,
+            lastUpdated: now
+        });
+        
+    } catch (error) {
+        console.error('❌ Live prices error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Single stock price endpoint (for specific queries)
+app.get('/api/live-price/:symbol', async (req, res) => {
+    try {
+        const { symbol } = req.params;
+        const price = await fetchLivePrice(symbol.toUpperCase());
+        
+        if (price) {
+            res.json({ success: true, ...price });
+        } else {
+            res.status(404).json({ success: false, message: 'Price not available' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
