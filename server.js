@@ -54,7 +54,7 @@ app.get('/api/ping', (req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('❌ Server error:', err.stack);
-  res.status(500).json({ error: 'Internal Server Error: ' + err.message, stack: err.stack });
+  res.status(500).json({ error: 'Internal Server Error!' });
 });
 
 // Boot the server
