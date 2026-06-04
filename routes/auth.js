@@ -65,7 +65,7 @@ export function getAuthRouter(prisma) {
       });
     } catch (error) {
       console.error('❌ Authentication failed:', error);
-      res.status(500).json({ error: 'Auth failed. Please check your setup!' });
+      res.status(500).json({ error: 'Auth failed: ' + error.message, stack: error.stack });
     }
   });
 
