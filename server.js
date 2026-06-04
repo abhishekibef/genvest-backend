@@ -1,0 +1,59 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { PrismaClient } from '@prisma/client';
+
+// Imports custom routes
+import { getAuthRouter } from './routes/auth.js';
+import { getStocksRouter } from './routes/stocks.js';
+import { getTradesRouter } from './routes/trades.js';
+import { getPortfolioRouter } from './routes/portfolio.js';
+import { getLeaderboardRouter } from './routes/leaderboard.js';
+import { getLearnRouter } from './routes/learn.js';
+import { runSimulationMiddleware } from './simulation.js';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 5001;
+
+// Initialize Prisma
+const prisma = new PrismaClient();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Simulation trigger middleware (fluctuates prices on active routing requests)
+app.use(runSimulationMiddleware(prisma));
+
+// Register API Routes
+app.use('/api/auth', getAuthRouter(prisma));
+app.use('/api/stocks', getStocksRouter(prisma));
+app.use('/api/trades', getTradesRouter(prisma));
+app.use('/api/portfolio', getPortfolioRouter(prisma));
+app.use('/api/leaderboard', getLeaderboardRouter(prisma));
+app.use('/api/learn', getLearnRouter(prisma));
+
+// Health Ping endpoint
+app.get('/api/ping', (req, res) => {
+  res.status(200).json({ status: 'ok', time: new Date() });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Server error:', err.stack);
+  res.status(500).json({ error: 'Internal Server Error!' });
+});
+
+// Boot the server
+app.listen(PORT, () => {
+  console.log(`🚀 Gen Z Trading Server running on: http://localhost:${PORT}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('🔌 Shutting down gracefully...');
+  await prisma.$disconnect();
+  process.exit(0);
+});

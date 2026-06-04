@@ -1,0 +1,100 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           Int           @id @default(autoincrement())
+  email        String        @unique
+  phone        String?
+  cash         Float         @default(1000000.0)
+  streak       Int           @default(1)
+  lastActive   DateTime      @default(now())
+  holdings     Holding[]
+  transactions Transaction[]
+  lessons      UserLesson[]
+}
+
+model Stock {
+  id                 String              @id
+  name               String
+  sector             String
+  price              Float
+  prevPrice          Float
+  volatility         String              // "HIGH", "MEDIUM", "LOW"
+  description        String
+  reason             String              // Today's movement context
+  holdings           Holding[]
+  transactions       Transaction[]
+  competitorHoldings CompetitorHolding[]
+}
+
+model Holding {
+  id        Int    @id @default(autoincrement())
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  stock     Stock  @relation(fields: [stockId], references: [id])
+  stockId   String
+  quantity  Int
+  avgPrice  Float
+
+  @@unique([userId, stockId])
+}
+
+model Transaction {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  stock     Stock    @relation(fields: [stockId], references: [id])
+  stockId   String
+  type      String   // "BUY" or "SELL"
+  quantity  Int
+  price     Float
+  timestamp DateTime @default(now())
+}
+
+model Competitor {
+  id        Int                 @id @default(autoincrement())
+  username  String              @unique
+  avatar    String              // Avatar background color or short label
+  cash      Float               @default(1000000.0)
+  streak    Int                 @default(5)
+  holdings  CompetitorHolding[]
+}
+
+model CompetitorHolding {
+  id           Int        @id @default(autoincrement())
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  competitorId Int
+  stock        Stock      @relation(fields: [stockId], references: [id])
+  stockId      String
+  quantity     Int
+  avgPrice     Float
+
+  @@unique([competitorId, stockId])
+}
+
+model Lesson {
+  id          String       @id
+  title       String
+  category    String
+  readTime    String       // e.g. "45s"
+  content     String       // Bite-sized lesson content
+  userLessons UserLesson[]
+}
+
+model UserLesson {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  lessonId  String
+  completed Boolean  @default(true)
+  timestamp DateTime @default(now())
+
+  @@unique([userId, lessonId])
+}
