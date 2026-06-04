@@ -1,6 +1,17 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { execSync } from 'child_process';
+
+// Run database migrations/schema push on boot before initializing PrismaClient
+try {
+  console.log('🔧 Running programmatic Prisma setup (db push)...');
+  execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
+  console.log('✅ Programmatic Prisma setup completed.');
+} catch (err) {
+  console.error('⚠️ Programmatic Prisma setup error:', err);
+}
+
 import { PrismaClient } from '@prisma/client';
 
 // Imports custom routes
@@ -47,8 +58,22 @@ app.use((err, req, res, next) => {
 });
 
 // Boot the server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🚀 Gen Z Trading Server running on: http://localhost:${PORT}`);
+  
+  // Seed check
+  try {
+    const stockCount = await prisma.stock.count();
+    if (stockCount === 0) {
+      console.log('🌱 Database is empty. Seeding data...');
+      execSync('node prisma/seed.js', { stdio: 'inherit' });
+      console.log('✅ Seeding completed.');
+    } else {
+      console.log(`📊 Database has ${stockCount} stocks. Skipping seed.`);
+    }
+  } catch (e) {
+    console.error('⚠️ Failed checking or seeding database:', e);
+  }
 });
 
 // Graceful shutdown
