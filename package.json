@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "npx prisma db push && node server.js",
+    "start": "npx prisma generate && npx prisma db push && node server.js",
     "db:init": "npx prisma db push && npx prisma db seed",
     "db:studio": "npx prisma studio"
   },
