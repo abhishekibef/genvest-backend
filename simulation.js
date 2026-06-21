@@ -150,6 +150,38 @@ export async function simulateTicks(prisma) {
 // Global variable to keep track of last simulated time
 let lastSimulatedTime = Date.now();
 
+// Determine if the Indian Stock Market is currently open (Monday to Friday, 9:15 AM to 3:30 PM IST)
+export function isIndianMarketOpen(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    hour12: false,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  
+  const parts = formatter.formatToParts(date);
+  const comps = {};
+  for (const part of parts) {
+    comps[part.type] = part.value;
+  }
+  
+  const weekday = comps.weekday;
+  const hour = parseInt(comps.hour, 10);
+  const minute = parseInt(comps.minute, 10);
+  
+  // Closed on Saturday and Sunday
+  if (weekday === 'Sat' || weekday === 'Sun') {
+    return false;
+  }
+  
+  const timeInMinutes = hour * 60 + minute;
+  const startMarketInMinutes = 9 * 60 + 15; // 9:15 AM
+  const endMarketInMinutes = 15 * 60 + 30; // 3:30 PM
+  
+  return timeInMinutes >= startMarketInMinutes && timeInMinutes <= endMarketInMinutes;
+}
+
 // Simulation Middleware: ensures price ticking when users request dashboard values
 export function runSimulationMiddleware(prisma) {
   return async (req, res, next) => {
@@ -157,8 +189,12 @@ export function runSimulationMiddleware(prisma) {
     // Simulate every 60 seconds on request
     if (now - lastSimulatedTime > 60000) {
       lastSimulatedTime = now;
-      console.log('🔄 Triggering stock market price fluctuations...');
-      await simulateTicks(prisma);
+      if (isIndianMarketOpen()) {
+        console.log('🔄 Triggering stock market price fluctuations...');
+        await simulateTicks(prisma);
+      } else {
+        console.log('💤 Indian Stock Market is closed. Skipping simulation ticks.');
+      }
     }
     next();
   };

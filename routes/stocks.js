@@ -1,7 +1,24 @@
 import express from 'express';
+import { isIndianMarketOpen } from '../simulation.js';
 
 export function getStocksRouter(prisma) {
   const router = express.Router();
+
+  // Get current market status (registered before /:id to prevent parameter clash)
+  router.get('/market-status', (req, res) => {
+    try {
+      const open = isIndianMarketOpen();
+      res.status(200).json({
+        open,
+        message: open ? "NSE Market is Active (9:15 AM - 3:30 PM IST)" : "NSE Market is Closed (9:15 AM - 3:30 PM IST Mon-Fri)",
+        timezone: "Asia/Kolkata",
+        hours: "9:15 AM - 3:30 PM IST, Mon-Fri"
+      });
+    } catch (error) {
+      console.error('❌ Failed to check market status:', error);
+      res.status(500).json({ error: 'Failed to retrieve market status' });
+    }
+  });
 
   // 1. Get all simulated stocks
   router.get('/', async (req, res) => {
