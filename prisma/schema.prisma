@@ -24,7 +24,14 @@ model User {
   holdings         Holding[]
   transactions     Transaction[]
   lessons          UserLesson[]
+
+  // Referral System
+  referralCode     String?       @unique
+  referredById     Int?
+  referredBy       User?         @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals        User[]        @relation("UserReferrals")
 }
+
 
 model Stock {
   id                 String              @id

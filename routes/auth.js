@@ -64,6 +64,12 @@ function verifyTOTP(token, secret) {
   return false;
 }
 
+function generateReferralCode(usernameOrEmail) {
+  const base = (usernameOrEmail || 'mool').split('@')[0].replace(/[^a-zA-Z0-9]/g, '').substring(0, 5).toUpperCase();
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  return `${base}${rand}`;
+}
+
 // Helper function to send SMS OTP via Twilio or Textbelt
 async function sendSMSOTP(phone, code) {
   const cleanPhone = phone.trim().replace(/[\s-]/g, '');
@@ -136,7 +142,7 @@ export function getAuthRouter(prisma) {
 
   // Simple string auth: Login or Register
   router.post('/login', async (req, res) => {
-    const { identifier, password, isSignUp } = req.body; // email/phone, password, isSignUp flag
+    const { identifier, password, isSignUp, referralCode } = req.body; // email/phone, password, isSignUp flag, referralCode
 
     if (!identifier) {
       return res.status(400).json({ error: 'Email or phone string is required!' });
@@ -165,16 +171,44 @@ export function getAuthRouter(prisma) {
         const uniqueSuffix = Math.floor(1000 + Math.random() * 9000);
         const usernameVal = `${baseUsername}_${uniqueSuffix}`;
 
+        let initialCash = 1000000.0;
+        let referredById = null;
+        let referrer = null;
+
+        if (referralCode && referralCode.trim()) {
+          referrer = await prisma.user.findUnique({
+            where: { referralCode: referralCode.trim().toUpperCase() }
+          });
+          if (!referrer) {
+            return res.status(400).json({ error: 'Invalid referral code! Please double check or leave blank.' });
+          }
+          initialCash = 1005000.0;
+          referredById = referrer.id;
+        }
+
+        const newUserCode = generateReferralCode(usernameVal);
+
         user = await prisma.user.create({
           data: {
             email: identifier.trim().toLowerCase(),
             username: usernameVal,
             password: password ? password.trim() : null,
-            cash: 1000000.0, // Credit ₹10,00,000 virtual cash
+            cash: initialCash,
             streak: 1,
-            lastActive: new Date()
+            lastActive: new Date(),
+            referralCode: newUserCode,
+            referredById: referredById
           }
         });
+
+        // Credit the referrer if valid
+        if (referrer) {
+          await prisma.user.update({
+            where: { id: referrer.id },
+            data: { cash: { increment: 10000.0 } }
+          });
+          console.log(`🎁 Referral bonus credited! Referrer (ID: ${referrer.id}) got ₹10,000. New user (ID: ${user.id}) got ₹5,000.`);
+        }
       } else {
         // Sign In Flow
         if (!user) {
@@ -289,7 +323,7 @@ export function getAuthRouter(prisma) {
 
   // Google sign in / sign up
   router.post('/google-login', async (req, res) => {
-    const { idToken } = req.body;
+    const { idToken, referralCode } = req.body;
     if (!idToken) {
       return res.status(400).json({ error: 'idToken is required!' });
     }
@@ -336,16 +370,41 @@ export function getAuthRouter(prisma) {
         const uniqueSuffix = Math.floor(1000 + Math.random() * 9000);
         const usernameVal = `${baseUsername}_${uniqueSuffix}`;
 
+        let initialCash = 1000000.0;
+        let referredById = null;
+        let referrer = null;
+
+        if (referralCode && referralCode.trim()) {
+          referrer = await prisma.user.findUnique({
+            where: { referralCode: referralCode.trim().toUpperCase() }
+          });
+          if (referrer) {
+            initialCash = 1005000.0;
+            referredById = referrer.id;
+          }
+        }
+
+        const newUserCode = generateReferralCode(usernameVal);
+
         user = await prisma.user.create({
           data: {
             email,
             username: usernameVal,
             name: name || email.split('@')[0],
-            cash: 1000000.0, // Credit ₹10,00,000 virtual cash
+            cash: initialCash,
             streak: 1,
-            lastActive: new Date()
+            lastActive: new Date(),
+            referralCode: newUserCode,
+            referredById: referredById
           }
         });
+
+        if (referrer) {
+          await prisma.user.update({
+            where: { id: referrer.id },
+            data: { cash: { increment: 10000.0 } }
+          });
+        }
       } else {
         // Calculate dynamic streaks!
         const now = new Date();
@@ -402,12 +461,27 @@ export function getAuthRouter(prisma) {
   router.get('/user/:id', async (req, res) => {
     const { id } = req.params;
     try {
-      const user = await prisma.user.findUnique({
+      let user = await prisma.user.findUnique({
         where: { id: Number(id) }
       });
       if (!user) {
         return res.status(404).json({ error: 'User not found!' });
       }
+
+      // Generate referralCode if not set
+      if (!user.referralCode) {
+        const generated = generateReferralCode(user.username || user.email);
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { referralCode: generated }
+        });
+      }
+
+      // Count referrals
+      const referralsCount = await prisma.user.count({
+        where: { referredById: user.id }
+      });
+
       res.status(200).json({
         id: user.id,
         email: user.email,
@@ -421,7 +495,10 @@ export function getAuthRouter(prisma) {
         totalXP: user.totalXP,
         gems: user.gems,
         lastActive: user.lastActive,
-        createdAt: user.createdAt
+        createdAt: user.createdAt,
+        referralCode: user.referralCode,
+        referredById: user.referredById,
+        referralsCount: referralsCount
       });
     } catch (error) {
       console.error('❌ Failed to fetch user details:', error);
@@ -678,6 +755,89 @@ export function getAuthRouter(prisma) {
     } catch (err) {
       console.error('❌ 2FA Login Verification error:', err);
       res.status(500).json({ error: 'Verification failed. Please try again.' });
+    }
+  });
+
+  // POST endpoint to redeem a referral code post-signup
+  router.post('/redeem-referral', async (req, res) => {
+    const { userId, referralCode } = req.body;
+
+    if (!userId || !referralCode) {
+      return res.status(400).json({ error: 'User ID and Referral Code are required!' });
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: Number(userId) }
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: 'User not found!' });
+      }
+
+      if (user.referredById) {
+        return res.status(400).json({ error: 'You have already redeemed a referral code!' });
+      }
+
+      const referrer = await prisma.user.findUnique({
+        where: { referralCode: referralCode.trim().toUpperCase() }
+      });
+
+      if (!referrer) {
+        return res.status(400).json({ error: 'Invalid referral code! User not found.' });
+      }
+
+      if (referrer.id === user.id) {
+        return res.status(400).json({ error: 'You cannot refer yourself!' });
+      }
+
+      // Update both users and record referral
+      const updatedUser = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          cash: { increment: 5000.0 },
+          referredById: referrer.id
+        }
+      });
+
+      await prisma.user.update({
+        where: { id: referrer.id },
+        data: {
+          cash: { increment: 10000.0 }
+        }
+      });
+
+      // Fetch new referrals count for response
+      const referralsCount = await prisma.user.count({
+        where: { referredById: user.id }
+      });
+
+      console.log(`🎁 Post-signup referral redeemed! Referrer (ID: ${referrer.id}) got ₹10,000. User (ID: ${user.id}) got ₹5,000.`);
+
+      res.status(200).json({
+        message: 'Referral code redeemed successfully! ₹5,000 has been added to your portfolio.',
+        user: {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          username: updatedUser.username || updatedUser.email.split('@')[0],
+          name: updatedUser.name,
+          phone: updatedUser.phone,
+          password: updatedUser.password,
+          twoFactorEnabled: updatedUser.twoFactorEnabled,
+          cash: updatedUser.cash,
+          streak: updatedUser.streak,
+          totalXP: updatedUser.totalXP,
+          gems: updatedUser.gems,
+          lastActive: updatedUser.lastActive,
+          createdAt: updatedUser.createdAt,
+          referralCode: updatedUser.referralCode,
+          referredById: updatedUser.referredById,
+          referralsCount: referralsCount
+        }
+      });
+    } catch (error) {
+      console.error('❌ Failed to redeem referral:', error);
+      res.status(500).json({ error: 'Internal Server Error!' });
     }
   });
 
