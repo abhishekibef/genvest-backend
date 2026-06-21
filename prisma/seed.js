@@ -1,4 +1,8 @@
 import { PrismaClient } from '@prisma/client';
+import { getSeedLessons } from './seed-lessons.js';
+import fs from 'fs';
+import path from 'path';
+
 
 const prisma = new PrismaClient();
 
@@ -300,12 +304,113 @@ async function main() {
   await prisma.holding.deleteMany();
   await prisma.transaction.deleteMany();
 
-  // 1. Seed Lessons
-  console.log('📚 Seeding Lessons...');
+  // 1. Seed Levels and Lessons
+  console.log('📚 Seeding Levels and Lessons...');
   await prisma.lesson.deleteMany();
-  for (const lesson of lessonsData) {
-    await prisma.lesson.create({ data: lesson });
+  await prisma.level.deleteMany();
+
+  const seedData = getSeedLessons();
+
+  // Scan staging directory for generated lessons
+  const stagingDir = path.join(process.cwd(), 'prisma', 'staging');
+  if (fs.existsSync(stagingDir)) {
+    const files = fs.readdirSync(stagingDir);
+    console.log(`📂 Found staging directory with ${files.length} files.`);
+    const stagedLessonsMap = new Map();
+
+    for (const file of files) {
+      if (file.startsWith('level_') && file.endsWith('_lessons.json')) {
+        const match = file.match(/level_(\d+)_lessons\.json/);
+        if (match) {
+          const levelNum = parseInt(match[1]);
+          const filePath = path.join(stagingDir, file);
+          try {
+            const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            if (content && Array.isArray(content.lessons)) {
+              const processedLessons = content.lessons.map(lesson => {
+                return {
+                  ...lesson,
+                  levelNumber: levelNum,
+                  recap: typeof lesson.recap === 'object' ? JSON.stringify(lesson.recap) : (lesson.recap || '[]'),
+                  quiz: typeof lesson.quiz === 'object' ? JSON.stringify(lesson.quiz) : (lesson.quiz || '[]')
+                };
+              });
+              stagedLessonsMap.set(levelNum, processedLessons);
+              console.log(`  ⭐ Loaded ${processedLessons.length} staged lessons for Level ${levelNum} from ${file}`);
+            }
+          } catch (e) {
+            console.error(`  ❌ Error reading staging file ${file}:`, e.message);
+          }
+        }
+      }
+    }
+
+    if (stagedLessonsMap.size > 0) {
+      console.log(`🔄 Merging staged lessons into seed data (overriding static lessons where staging exists)...`);
+      const overriddenLessons = [];
+      const levelsWithStaging = new Set(stagedLessonsMap.keys());
+
+      for (const lesson of seedData.lessons) {
+        if (!levelsWithStaging.has(lesson.levelNumber)) {
+          overriddenLessons.push(lesson);
+        }
+      }
+
+      for (const [levelNum, lessons] of stagedLessonsMap.entries()) {
+        overriddenLessons.push(...lessons);
+      }
+
+      seedData.lessons = overriddenLessons;
+      console.log(`  ✅ Total lessons after merging staging: ${seedData.lessons.length}`);
+    }
   }
+
+  // Create levels first
+  for (const level of seedData.levels) {
+    await prisma.level.create({
+      data: {
+        number: level.number,
+        title: level.title,
+        description: level.description,
+        icon: level.icon
+      }
+    });
+  }
+  console.log(`  ✅ Created ${seedData.levels.length} levels`);
+
+  // Create lessons with level references
+  for (const lesson of seedData.lessons) {
+    const level = await prisma.level.findUnique({
+      where: { number: lesson.levelNumber }
+    });
+    if (!level) {
+      console.error(`  ⚠️ Level ${lesson.levelNumber} not found for lesson ${lesson.id}`);
+      continue;
+    }
+    await prisma.lesson.create({
+      data: {
+        id: lesson.id,
+        levelId: level.id,
+        lessonNumber: lesson.lessonNumber,
+        title: lesson.title,
+        readTime: lesson.readTime,
+        xpReward: lesson.xpReward,
+        learningObjective: lesson.learningObjective || '',
+        hook: lesson.hook || '',
+        story: lesson.story || '',
+        visualSuggestion: lesson.visualSuggestion || '',
+        coreExplanation: lesson.coreExplanation || '',
+        didYouKnow: lesson.didYouKnow || '',
+        indianExample: lesson.indianExample || '',
+        interactiveHint: lesson.interactiveHint || '',
+        memoryTrick: lesson.memoryTrick || '',
+        recap: lesson.recap || '[]',
+        unlockMessage: lesson.unlockMessage || '',
+        quiz: lesson.quiz || '[]'
+      }
+    });
+  }
+  console.log(`  ✅ Created ${seedData.lessons.length} lessons`);
 
   // 2. Seed Stocks
   console.log('📈 Seeding Stocks...');

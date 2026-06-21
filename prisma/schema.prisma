@@ -8,15 +8,22 @@ generator client {
 }
 
 model User {
-  id           Int           @id @default(autoincrement())
-  email        String        @unique
-  phone        String?
-  cash         Float         @default(1000000.0)
-  streak       Int           @default(1)
-  lastActive   DateTime      @default(now())
-  holdings     Holding[]
-  transactions Transaction[]
-  lessons      UserLesson[]
+  id               Int           @id @default(autoincrement())
+  email            String        @unique
+  username         String?       @unique
+  name             String?
+  phone            String?
+  password         String?
+  twoFactorEnabled Boolean       @default(false)
+  cash             Float         @default(1000000.0)
+  streak           Int           @default(1)
+  lastActive       DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  totalXP          Int           @default(0)
+  gems             Int           @default(100)
+  holdings         Holding[]
+  transactions     Transaction[]
+  lessons          UserLesson[]
 }
 
 model Stock {
@@ -78,13 +85,42 @@ model CompetitorHolding {
   @@unique([competitorId, stockId])
 }
 
-model Lesson {
-  id          String       @id
+// ========================
+// LEARNING SYSTEM MODELS
+// ========================
+
+model Level {
+  id          Int      @id @default(autoincrement())
+  number      Int      @unique
   title       String
-  category    String
-  readTime    String       // e.g. "45s"
-  content     String       // Bite-sized lesson content
-  userLessons UserLesson[]
+  description String
+  icon        String
+  lessons     Lesson[]
+}
+
+model Lesson {
+  id                String       @id
+  levelId           Int
+  level             Level        @relation(fields: [levelId], references: [id])
+  lessonNumber      Int
+  title             String
+  readTime          String
+  xpReward          Int          @default(20)
+  learningObjective String       @default("")
+  hook              String       @default("")
+  story             String       @default("")
+  visualSuggestion  String       @default("")
+  coreExplanation   String       @default("")
+  didYouKnow        String       @default("")
+  indianExample     String       @default("")
+  interactiveHint   String       @default("")
+  memoryTrick       String       @default("")
+  recap             String       @default("[]")
+  unlockMessage     String       @default("")
+  quiz              String       @default("[]")
+  userLessons       UserLesson[]
+
+  @@unique([levelId, lessonNumber])
 }
 
 model UserLesson {
@@ -94,7 +130,23 @@ model UserLesson {
   lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   lessonId  String
   completed Boolean  @default(true)
+  score     Int      @default(0)
+  xpEarned  Int      @default(0)
+  attempts  Int      @default(1)
   timestamp DateTime @default(now())
 
   @@unique([userId, lessonId])
 }
+
+model CompetitionEntry {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  userName      String
+  date          String   // Format: "YYYY-MM-DD"
+  startingValue Float    @default(1000000.0)
+  profit        Float    @default(0.0)
+  joinedAt      DateTime @default(now())
+
+  @@unique([userId, date])
+}
+

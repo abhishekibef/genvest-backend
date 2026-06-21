@@ -28,8 +28,8 @@ export function getLeaderboardRouter(prisma) {
       });
       const userNetWorth = user.cash + userHoldingsValue;
 
-      // 2. Fetch all competitors with their holdings
-      const competitors = await prisma.competitor.findMany({
+      // 2. Fetch all real users with their holdings and stock relations
+      const users = await prisma.user.findMany({
         include: {
           holdings: {
             include: { stock: true }
@@ -44,34 +44,29 @@ export function getLeaderboardRouter(prisma) {
         stockPrices[s.id] = s.price;
       });
 
-      // 4. Calculate Net Worth for each competitor dynamically
+      // 4. Calculate Net Worth for each real user dynamically
       const leaderboardEntries = [];
 
-      // Add user entry
-      leaderboardEntries.push({
-        id: `user-${user.id}`,
-        username: `${user.email.split('@')[0]} (You)`,
-        avatar: '#6366F1', // Indigo Gen Z color
-        totalValue: Math.round(userNetWorth * 100) / 100,
-        streak: user.streak,
-        isUser: true
-      });
-
-      // Add competitors entries
-      competitors.forEach(comp => {
-        let compHoldingsValue = 0;
-        comp.holdings.forEach(h => {
+      users.forEach(u => {
+        let uHoldingsValue = 0;
+        u.holdings.forEach(h => {
           const currentPrice = stockPrices[h.stockId] || h.avgPrice;
-          compHoldingsValue += h.quantity * currentPrice;
+          uHoldingsValue += h.quantity * currentPrice;
         });
 
+        const totalNetWorth = u.cash + uHoldingsValue;
+        const isCurrentUser = Number(userId) === u.id;
+
+        // Clean username from email if not defined
+        const displayName = u.username || u.email.split('@')[0];
+
         leaderboardEntries.push({
-          id: `comp-${comp.id}`,
-          username: comp.username,
-          avatar: comp.avatar,
-          totalValue: Math.round((comp.cash + compHoldingsValue) * 100) / 100,
-          streak: comp.streak,
-          isUser: false
+          id: `user-${u.id}`,
+          username: isCurrentUser ? `${displayName} (You)` : displayName,
+          avatar: u.id % 2 === 0 ? '#6366F1' : '#10B981', // Indigo or Emerald green
+          totalValue: Math.round(totalNetWorth * 100) / 100,
+          streak: u.streak || 1,
+          isUser: isCurrentUser
         });
       });
 
@@ -88,7 +83,7 @@ export function getLeaderboardRouter(prisma) {
       const userRankInfo = rankedLeaderboard.find(entry => entry.isUser);
 
       res.status(200).json({
-        userRank: userRankInfo ? userRankInfo.rank : 99,
+        userRank: userRankInfo ? userRankInfo.rank : 1,
         userNetWorth: Math.round(userNetWorth * 100) / 100,
         leaderboard: rankedLeaderboard
       });
