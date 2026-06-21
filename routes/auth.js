@@ -143,8 +143,15 @@ export function getAuthRouter(prisma) {
     }
 
     try {
-      let user = await prisma.user.findUnique({
-        where: { email: identifier.trim().toLowerCase() }
+      const cleanIdentifier = identifier.trim().toLowerCase();
+      let user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { email: cleanIdentifier },
+            { username: cleanIdentifier },
+            { phone: identifier.trim() }
+          ]
+        }
       });
 
       if (isSignUp) {
