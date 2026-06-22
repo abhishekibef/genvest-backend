@@ -149,6 +149,7 @@ export function getAuthRouter(prisma) {
     }
 
     try {
+      let isNewUser = false;
       const cleanIdentifier = identifier.trim().toLowerCase();
       let user = await prisma.user.findFirst({
         where: {
@@ -161,6 +162,7 @@ export function getAuthRouter(prisma) {
       });
 
       if (isSignUp) {
+        isNewUser = true;
         // Sign Up Flow
         if (user) {
           return res.status(400).json({ error: 'Account already exists! Please sign in instead.' });
@@ -301,6 +303,7 @@ export function getAuthRouter(prisma) {
       // 2FA not enabled, login immediately
       res.status(200).json({
         message: 'Auth successful! Ready to trade 🚀',
+        isNewUser,
         user: {
           id: user.id,
           email: user.email,
@@ -359,12 +362,14 @@ export function getAuthRouter(prisma) {
         name = payload.name;
       }
       
+      let isNewUser = false;
       // Find or create user
       let user = await prisma.user.findUnique({
         where: { email }
       });
 
       if (!user) {
+        isNewUser = true;
         console.log(`🆕 Auto-creating Google user for: ${email}`);
         const baseUsername = email.trim().toLowerCase().split('@')[0].replace(/[^a-z0-9_]/g, '');
         const uniqueSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -437,6 +442,7 @@ export function getAuthRouter(prisma) {
 
       res.status(200).json({
         message: 'Google auth successful! Ready to trade 🚀',
+        isNewUser,
         user: {
           id: user.id,
           email: user.email,
@@ -738,6 +744,7 @@ export function getAuthRouter(prisma) {
         return res.status(200).json({
           success: true,
           message: 'Two-Factor Authentication verified successfully!',
+          isNewUser: false,
           user: {
             id: updatedUser.id,
             email: updatedUser.email,
