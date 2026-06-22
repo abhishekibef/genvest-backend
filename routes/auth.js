@@ -315,7 +315,8 @@ export function getAuthRouter(prisma) {
           cash: user.cash,
           streak: user.streak,
           lastActive: user.lastActive,
-          createdAt: user.createdAt
+          createdAt: user.createdAt,
+          tourCompleted: user.tourCompleted
         }
       });
     } catch (error) {
@@ -453,7 +454,8 @@ export function getAuthRouter(prisma) {
           cash: user.cash,
           streak: user.streak,
           lastActive: user.lastActive,
-          createdAt: user.createdAt
+          createdAt: user.createdAt,
+          tourCompleted: user.tourCompleted
         }
       });
 
@@ -502,6 +504,7 @@ export function getAuthRouter(prisma) {
         gems: user.gems,
         lastActive: user.lastActive,
         createdAt: user.createdAt,
+        tourCompleted: user.tourCompleted,
         referralCode: user.referralCode,
         referredById: user.referredById,
         referralsCount: referralsCount
@@ -515,7 +518,7 @@ export function getAuthRouter(prisma) {
   // Update user details by ID
   router.put('/user/:id', async (req, res) => {
     const { id } = req.params;
-    const { name, username, phone, password, twoFactorEnabled } = req.body;
+    const { name, username, phone, password, twoFactorEnabled, tourCompleted } = req.body;
     try {
       const updateData = {};
       if (name !== undefined) updateData.name = name;
@@ -537,6 +540,7 @@ export function getAuthRouter(prisma) {
       if (phone !== undefined) updateData.phone = phone;
       if (password !== undefined) updateData.password = password;
       if (twoFactorEnabled !== undefined) updateData.twoFactorEnabled = twoFactorEnabled;
+      if (tourCompleted !== undefined) updateData.tourCompleted = tourCompleted;
 
       const updatedUser = await prisma.user.update({
         where: { id: Number(id) },
@@ -557,7 +561,8 @@ export function getAuthRouter(prisma) {
           totalXP: updatedUser.totalXP,
           gems: updatedUser.gems,
           lastActive: updatedUser.lastActive,
-          createdAt: updatedUser.createdAt
+          createdAt: updatedUser.createdAt,
+          tourCompleted: updatedUser.tourCompleted
         }
       });
     } catch (error) {
@@ -755,7 +760,8 @@ export function getAuthRouter(prisma) {
             cash: updatedUser.cash,
             streak: updatedUser.streak,
             lastActive: updatedUser.lastActive,
-            createdAt: updatedUser.createdAt
+            createdAt: updatedUser.createdAt,
+            tourCompleted: updatedUser.tourCompleted
           }
         });
       }
