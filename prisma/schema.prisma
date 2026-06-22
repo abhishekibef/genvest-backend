@@ -21,6 +21,7 @@ model User {
   createdAt        DateTime      @default(now())
   totalXP          Int           @default(0)
   gems             Int           @default(100)
+  tourCompleted    Boolean       @default(false)
   holdings         Holding[]
   transactions     Transaction[]
   lessons          UserLesson[]
