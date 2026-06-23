@@ -31,6 +31,10 @@ model User {
   referredById     Int?
   referredBy       User?         @relation("UserReferrals", fields: [referredById], references: [id])
   referrals        User[]        @relation("UserReferrals")
+
+  // Tournament System
+  tournamentEntries      TournamentEntry[]
+  tournamentTransactions TournamentTransaction[]
 }
 
 
@@ -46,6 +50,8 @@ model Stock {
   holdings           Holding[]
   transactions       Transaction[]
   competitorHoldings CompetitorHolding[]
+  tournamentHoldings TournamentHolding[]
+  tournamentTransactions TournamentTransaction[]
 }
 
 model Holding {
@@ -146,15 +152,59 @@ model UserLesson {
   @@unique([userId, lessonId])
 }
 
-model CompetitionEntry {
-  id            Int      @id @default(autoincrement())
-  userId        Int
-  userName      String
-  date          String   // Format: "YYYY-MM-DD"
-  startingValue Float    @default(1000000.0)
-  profit        Float    @default(0.0)
-  joinedAt      DateTime @default(now())
+// ========================
+// TOURNAMENT SYSTEM MODELS
+// ========================
 
-  @@unique([userId, date])
+model Tournament {
+  id        Int      @id @default(autoincrement())
+  date      String   @unique // Format: "YYYY-MM-DD"
+  status    String   @default("ACTIVE") // "ACTIVE", "COMPLETED"
+  createdAt DateTime @default(now())
+  
+  entries      TournamentEntry[]
+  transactions TournamentTransaction[]
 }
 
+model TournamentEntry {
+  id            Int        @id @default(autoincrement())
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        Int
+  tournament    Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  tournamentId  Int
+  
+  startingCash  Float      @default(1000000.0)
+  currentCash   Float      @default(1000000.0)
+  profit        Float      @default(0.0)
+  joinedAt      DateTime   @default(now())
+
+  holdings      TournamentHolding[]
+
+  @@unique([userId, tournamentId])
+}
+
+model TournamentHolding {
+  id               Int             @id @default(autoincrement())
+  entry            TournamentEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entryId          Int
+  stock            Stock           @relation(fields: [stockId], references: [id])
+  stockId          String
+  quantity         Int
+  avgPrice         Float
+
+  @@unique([entryId, stockId])
+}
+
+model TournamentTransaction {
+  id            Int        @id @default(autoincrement())
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        Int
+  tournament    Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  tournamentId  Int
+  stock         Stock      @relation(fields: [stockId], references: [id])
+  stockId       String
+  type          String     // "BUY" or "SELL"
+  quantity      Int
+  price         Float
+  timestamp     DateTime   @default(now())
+}

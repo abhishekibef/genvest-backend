@@ -23,6 +23,7 @@ import { getLeaderboardRouter } from './routes/leaderboard.js';
 import { getLearnRouter } from './routes/learn.js';
 import { getCompetitionRouter } from './routes/competition.js';
 import { getBadgesRouter } from './routes/badges.js';
+import { getTournamentRouter } from './routes/tournament.js';
 import { runSimulationMiddleware } from './simulation.js';
 
 dotenv.config();
@@ -49,7 +50,7 @@ app.use('/api/leaderboard', getLeaderboardRouter(prisma));
 app.use('/api/learn', getLearnRouter(prisma));
 app.use('/api/competition', getCompetitionRouter(prisma));
 app.use('/api/badges', getBadgesRouter(prisma));
-
+app.use('/api/tournament', getTournamentRouter(prisma));
 // Health Ping endpoint
 app.get('/api/ping', (req, res) => {
   res.status(200).json({ status: 'ok', time: new Date() });
