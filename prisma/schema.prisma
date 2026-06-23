@@ -35,6 +35,11 @@ model User {
   // Tournament System
   tournamentEntries      TournamentEntry[]
   tournamentTransactions TournamentTransaction[]
+
+  // Private Lobby System
+  hostedLobbies          PrivateLobby[]         @relation("HostedLobbies")
+  lobbyEntries           PrivateLobbyEntry[]
+  lobbyTransactions      PrivateLobbyTransaction[]
 }
 
 
@@ -52,6 +57,10 @@ model Stock {
   competitorHoldings CompetitorHolding[]
   tournamentHoldings TournamentHolding[]
   tournamentTransactions TournamentTransaction[]
+
+  // Private Lobby System
+  lobbyHoldings          PrivateLobbyHolding[]
+  lobbyTransactions      PrivateLobbyTransaction[]
 }
 
 model Holding {
@@ -207,4 +216,68 @@ model TournamentTransaction {
   quantity      Int
   price         Float
   timestamp     DateTime   @default(now())
+}
+
+// ========================
+// PRIVATE LOBBY MODELS
+// ========================
+
+model PrivateLobby {
+  id            Int                    @id @default(autoincrement())
+  code          String                 @unique // e.g. IITB98
+  name          String
+  hostId        Int
+  startingCash  Float                  @default(1000000.0)
+  status        String                 @default("ACTIVE") // "ACTIVE", "COMPLETED"
+  startTime     DateTime
+  endTime       DateTime
+  createdAt     DateTime               @default(now())
+  
+  host          User                   @relation("HostedLobbies", fields: [hostId], references: [id], onDelete: Cascade)
+  entries       PrivateLobbyEntry[]
+  transactions  PrivateLobbyTransaction[]
+}
+
+model PrivateLobbyEntry {
+  id           Int                     @id @default(autoincrement())
+  lobbyId      Int
+  userId       Int
+  startingCash Float                   @default(1000000.0)
+  currentCash  Float                   @default(1000000.0)
+  profit       Float                   @default(0.0)
+  joinedAt     DateTime                @default(now())
+  
+  lobby        PrivateLobby            @relation(fields: [lobbyId], references: [id], onDelete: Cascade)
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings     PrivateLobbyHolding[]
+  
+  @@unique([userId, lobbyId])
+}
+
+model PrivateLobbyHolding {
+  id           Int                 @id @default(autoincrement())
+  entryId      Int
+  stockId      String
+  quantity     Int
+  avgPrice     Float
+  
+  entry        PrivateLobbyEntry   @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  stock        Stock               @relation(fields: [stockId], references: [id])
+  
+  @@unique([entryId, stockId])
+}
+
+model PrivateLobbyTransaction {
+  id            Int                 @id @default(autoincrement())
+  lobbyId       Int
+  userId        Int
+  stockId       String
+  type          String              // "BUY" or "SELL"
+  quantity      Int
+  price         Float
+  timestamp     DateTime            @default(now())
+  
+  lobby         PrivateLobby        @relation(fields: [lobbyId], references: [id], onDelete: Cascade)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stock         Stock               @relation(fields: [stockId], references: [id])
 }
