@@ -15,8 +15,12 @@ export function getTournamentRouter(prisma) {
         where: { date: today },
         include: {
           entries: {
-            include: { user: true },
-            orderBy: { profit: 'desc' }
+            include: { 
+              user: true,
+              holdings: {
+                include: { stock: true }
+              }
+            }
           }
         }
       });
@@ -25,13 +29,34 @@ export function getTournamentRouter(prisma) {
         return res.json({ tournament: null, leaderboard: [] });
       }
 
-      const leaderboard = tournament.entries.map((entry, index) => ({
+      // Calculate dynamic profits in memory based on current cash + holding values
+      const entriesWithProfit = tournament.entries.map(entry => {
+        let holdingsValue = 0;
+        if (entry.holdings && entry.holdings.length > 0) {
+          holdingsValue = entry.holdings.reduce((sum, h) => {
+            const currentPrice = h.stock?.price || h.avgPrice;
+            return sum + (h.quantity * currentPrice);
+          }, 0);
+        }
+        const totalValue = entry.currentCash + holdingsValue;
+        const profit = totalValue - entry.startingCash;
+        
+        return {
+          userId: entry.userId,
+          username: entry.user.username || entry.user.name || `Trader${entry.userId}`,
+          currentCash: totalValue, // display total portfolio value as currentCash/value
+          profit: profit,
+          joinedAt: entry.joinedAt
+        };
+      });
+
+      // Sort by profit descending
+      entriesWithProfit.sort((a, b) => b.profit - a.profit);
+
+      // Map to leaderboard with correct ranks
+      const leaderboard = entriesWithProfit.map((entry, index) => ({
         rank: index + 1,
-        userId: entry.userId,
-        username: entry.user.username || entry.user.name || `Trader${entry.userId}`,
-        currentCash: entry.currentCash,
-        profit: entry.profit,
-        joinedAt: entry.joinedAt
+        ...entry
       }));
 
       res.json({ tournament, leaderboard });
