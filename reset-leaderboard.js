@@ -22,9 +22,18 @@ async function main() {
   });
   console.log(`✅ Reset virtual cash to ₹10,00,000 and active streak to 1 for ${usersCount.count} users.`);
 
-  // 4. Delete daily competition standings
-  const compCount = await prisma.competitionEntry.deleteMany({});
-  console.log(`✅ Deleted ${compCount.count} daily competition entries.`);
+  // 4. Delete daily tournament standings & transactions
+  const tourTxCount = await prisma.tournamentTransaction.deleteMany({});
+  console.log(`✅ Deleted ${tourTxCount.count} tournament transactions.`);
+
+  const tourHoldingCount = await prisma.tournamentHolding.deleteMany({});
+  console.log(`✅ Deleted ${tourHoldingCount.count} tournament holdings.`);
+
+  const tourEntryCount = await prisma.tournamentEntry.deleteMany({});
+  console.log(`✅ Deleted ${tourEntryCount.count} tournament entries.`);
+
+  const tourCount = await prisma.tournament.deleteMany({});
+  console.log(`✅ Deleted ${tourCount.count} tournaments.`);
 
   console.log('✨ Leaderboard has been successfully reset! Real rankings will calculate dynamically as users start trading.');
 }
