@@ -6,60 +6,51 @@ const prisma = new PrismaClient();
 // Daily at 15:30 (3:30 PM) -> "30 15 * * *"
 // For testing locally without waiting, we'll expose a function that can also be manually triggered
 export const runDailyTournamentReset = async () => {
-  console.log('🔄 Running Daily Tournament Reset...');
+  console.log('🔄 Running Daily Sprint Reset...');
   try {
-    const todayStr = new Date().toISOString().split('T')[0];
-    
-    // 1. Get today's active tournament
-    const tournament = await prisma.tournament.findUnique({
-      where: { date: todayStr },
-      include: { entries: { include: { user: true } } }
+    const users = await prisma.user.findMany({
+      include: {
+        holdings: { include: { stock: true } }
+      }
     });
 
-    if (tournament && tournament.status === 'ACTIVE') {
-      // Calculate profits and find winner
-      let highestProfit = -Infinity;
-      let winner = null;
+    let highestProfit = -Infinity;
+    let winner = null;
 
-      for (const entry of tournament.entries) {
-        if (entry.profit > highestProfit) {
-          highestProfit = entry.profit;
-          winner = entry.user;
-        }
-      }
-
-      if (winner && highestProfit > 0) {
-        // Announce winner to Social Feed
-        await prisma.socialFeed.create({
-          data: {
-            userId: winner.id,
-            username: winner.username || 'Trader',
-            type: 'STREAK',
-            message: `👑 Won today's Daily Sprint with a profit of ₹${highestProfit.toFixed(2)}!`
-          }
-        });
-      }
-
-      // Mark tournament as completed
-      await prisma.tournament.update({
-        where: { id: tournament.id },
-        data: { status: 'COMPLETED' }
+    for (const user of users) {
+      let currentHoldingsValue = 0;
+      user.holdings.forEach(h => {
+        currentHoldingsValue += h.quantity * h.stock.price;
       });
-      console.log('✅ Concluded today\'s tournament.');
+      const currentNetWorth = user.cash + currentHoldingsValue;
+      const profit = currentNetWorth - user.startOfDayNetWorth;
+
+      if (profit > highestProfit) {
+        highestProfit = profit;
+        winner = user;
+      }
+
+      // Update startOfDayNetWorth for tomorrow
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { startOfDayNetWorth: currentNetWorth }
+      });
     }
 
-    // 2. Create tomorrow's tournament
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
-    
-    await prisma.tournament.upsert({
-      where: { date: tomorrowStr },
-      update: {},
-      create: { date: tomorrowStr, status: 'ACTIVE' }
-    });
-    console.log('✅ Created tomorrow\'s tournament.');
-
+    if (winner && highestProfit > 0) {
+      // Announce winner to Social Feed
+      await prisma.socialFeed.create({
+        data: {
+          userId: winner.id,
+          username: winner.username || winner.email.split('@')[0],
+          type: 'STREAK',
+          message: `👑 Won today's Daily Sprint with a profit of ₹${highestProfit.toFixed(2)}!`
+        }
+      });
+      console.log(`✅ Crowned ${winner.username} as Daily Sprint Winner!`);
+    } else {
+      console.log('✅ Daily Sprint concluded. No profitable trades today.');
+    }
   } catch (error) {
     console.error('❌ Daily reset error:', error);
   }
