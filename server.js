@@ -26,6 +26,7 @@ import { getBadgesRouter } from './routes/badges.js';
 import { getTournamentRouter } from './routes/tournament.js';
 import { getLobbyRouter } from './routes/lobby.js';
 import { runSimulationMiddleware } from './simulation.js';
+import { initCronJobs } from './cron.js';
 
 dotenv.config();
 
@@ -53,6 +54,21 @@ app.use('/api/competition', getCompetitionRouter(prisma));
 app.use('/api/badges', getBadgesRouter(prisma));
 app.use('/api/tournament', getTournamentRouter(prisma));
 app.use('/api/lobby', getLobbyRouter(prisma));
+
+// Social Feed API
+app.get('/api/social-feed', async (req, res) => {
+  try {
+    const feed = await prisma.socialFeed.findMany({
+      orderBy: { timestamp: 'desc' },
+      take: 20
+    });
+    res.json(feed);
+  } catch (error) {
+    console.error('Error fetching social feed:', error);
+    res.status(500).json({ error: 'Server error fetching social feed' });
+  }
+});
+
 // Health Ping endpoint
 app.get('/api/ping', (req, res) => {
   res.status(200).json({ status: 'ok', time: new Date() });
@@ -63,6 +79,9 @@ app.use((err, req, res, next) => {
   console.error('❌ Server error:', err.stack);
   res.status(500).json({ error: 'Internal Server Error!' });
 });
+
+// Initialize gamification engine
+initCronJobs();
 
 // Boot the server
 app.listen(PORT, async () => {

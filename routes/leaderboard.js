@@ -66,7 +66,8 @@ export function getLeaderboardRouter(prisma) {
           avatar: u.id % 2 === 0 ? '#6366F1' : '#10B981', // Indigo or Emerald green
           totalValue: Math.round(totalNetWorth * 100) / 100,
           streak: u.streak || 1,
-          isUser: isCurrentUser
+          isUser: isCurrentUser,
+          league: u.league || 'BRONZE'
         });
       });
 

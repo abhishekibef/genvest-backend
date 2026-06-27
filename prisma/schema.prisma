@@ -40,6 +40,11 @@ model User {
   hostedLobbies          PrivateLobby[]         @relation("HostedLobbies")
   lobbyEntries           PrivateLobbyEntry[]
   lobbyTransactions      PrivateLobbyTransaction[]
+
+  // Gamification & Leagues
+  league                 String                 @default("BRONZE")
+  highestLeague          String                 @default("BRONZE")
+  socialFeeds            SocialFeed[]
 }
 
 
@@ -280,4 +285,19 @@ model PrivateLobbyTransaction {
   lobby         PrivateLobby        @relation(fields: [lobbyId], references: [id], onDelete: Cascade)
   user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   stock         Stock               @relation(fields: [stockId], references: [id])
+}
+
+// ========================
+// SOCIAL FEED MODELS
+// ========================
+
+model SocialFeed {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  username  String
+  type      String   // "TRADE", "STREAK", "PROMOTION"
+  message   String
+  timestamp DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
