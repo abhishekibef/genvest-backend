@@ -1,4 +1,5 @@
 import express from 'express';
+import { XP_LOGIC } from './xp.js';
 
 export function getLearnRouter(prisma) {
   const router = express.Router();
@@ -170,13 +171,21 @@ export function getLearnRouter(prisma) {
 
   // ─── 4. Complete a lesson (submit quiz) ─────────────────────────
   router.post('/lesson/complete', async (req, res) => {
-    const { userId, lessonId, score } = req.body;
+    const { userId, lessonId, score, total, scorePercent } = req.body;
 
     if (!userId || !lessonId) {
       return res.status(400).json({ error: 'Missing userId or lessonId!' });
     }
 
-    const quizScore = score || 0;
+    // Support both: scorePercent (0-100) directly, or score/total to calculate
+    let quizScore;
+    if (scorePercent !== undefined) {
+      quizScore = Math.round(scorePercent);
+    } else if (total && total > 0) {
+      quizScore = Math.round((score / total) * 100);
+    } else {
+      quizScore = score || 0;
+    }
     const passed = quizScore >= 70;
 
     if (!passed) {
@@ -199,15 +208,16 @@ export function getLearnRouter(prisma) {
         return res.status(404).json({ error: 'Lesson not found' });
       }
 
-      // Calculate XP (bonus for high scores)
-      let xpEarned = lesson.xpReward;
+      // Unified Gamification Logic
+      // Earning XP for both the lesson reading (80) and the quiz completion (20)
+      let xpEarned = XP_LOGIC.LESSON + XP_LOGIC.QUIZ;
       let gemsEarned = 10;
+
+      // Bonus gems for high scores (XP remains strictly bound to the logic table)
       if (quizScore >= 90) {
-        xpEarned = Math.round(xpEarned * 1.5); // 50% bonus
         gemsEarned = 20;
       }
       if (quizScore === 100) {
-        xpEarned = Math.round(xpEarned * 2); // Double XP for perfect
         gemsEarned = 30;
       }
 
@@ -360,15 +370,49 @@ export function getLearnRouter(prisma) {
     }
   });
 
+  // ─── 6. Get today's daily mission status ────────────────────────
+  router.get('/daily-missions/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+      // Find all UserLesson records completed today
+      const todayLessons = await prisma.userLesson.findMany({
+        where: {
+          userId: Number(userId),
+          timestamp: { gte: todayStart, lte: todayEnd }
+        }
+      });
+
+      const lessonDoneToday  = todayLessons.length >= 1;
+      // "Solve 5 Questions" = completed 5 or more quizzes today (each lesson = 1 quiz)
+      const quizDoneToday    = todayLessons.length >= 5;
+      // "Market Challenge" = user completed any lesson with score >= 80 today
+      const challengeToday   = todayLessons.some(ul => ul.score >= 80);
+
+      return res.status(200).json({
+        success: true,
+        missions: [
+          { id: 1, text: "Complete Today's Lesson", xp: '+80 XP',  done: lessonDoneToday  },
+          { id: 2, text: 'Solve 5 Questions',       xp: '+60 XP',  done: quizDoneToday    },
+          { id: 3, text: "Finish Today's Market Challenge", xp: '+60 XP', done: challengeToday },
+        ],
+        completedCount: [lessonDoneToday, quizDoneToday, challengeToday].filter(Boolean).length
+      });
+    } catch (err) {
+      console.error('daily-missions error:', err);
+      res.status(500).json({ error: 'Failed to load daily missions' });
+    }
+  });
+
   // ─── Helper: Check if a level is unlocked ───────────────────────
   function isLevelUnlocked(levels, levelNumber, completedIds) {
-    // Level is unlocked if all lessons in the PREVIOUS level are completed
     const prevLevel = levels.find(l => l.number === levelNumber - 1);
     if (!prevLevel) return true;
-
     const prevLessons = prevLevel.lessons || [];
     if (prevLessons.length === 0) return true;
-
     return prevLessons.every(lesson => completedIds.has(lesson.id));
   }
 
