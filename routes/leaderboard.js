@@ -71,8 +71,12 @@ export function getLeaderboardRouter(prisma) {
         });
       });
 
-      // 5. Sort by total value descending
-      leaderboardEntries.sort((a, b) => b.totalValue - a.totalValue);
+      // 5. Sort alphabetically by username (A-Z)
+      leaderboardEntries.sort((a, b) => {
+        const nameA = a.username.replace(' (You)', '').toLowerCase();
+        const nameB = b.username.replace(' (You)', '').toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
 
       // 6. Map rank indices (1-indexed)
       const rankedLeaderboard = leaderboardEntries.map((entry, index) => ({
