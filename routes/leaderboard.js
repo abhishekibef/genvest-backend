@@ -14,7 +14,8 @@ export function getLeaderboardRouter(prisma) {
         include: {
           holdings: {
             include: { stock: true }
-          }
+          },
+          lessons: true
         }
       });
 
@@ -28,12 +29,13 @@ export function getLeaderboardRouter(prisma) {
       });
       const userNetWorth = user.cash + userHoldingsValue;
 
-      // 2. Fetch all real users with their holdings and stock relations
+      // 2. Fetch all real users with their holdings, stock relations, and completed lessons
       const users = await prisma.user.findMany({
         include: {
           holdings: {
             include: { stock: true }
-          }
+          },
+          lessons: true
         }
       });
 
@@ -44,53 +46,75 @@ export function getLeaderboardRouter(prisma) {
         stockPrices[s.id] = s.price;
       });
 
-      // 4. Calculate Net Worth for each real user dynamically
-      const leaderboardEntries = [];
+      // 4. Calculate Trading & Learning Leaderboard entries
+      const tradingEntries = [];
+      const learningEntries = [];
 
       users.forEach(u => {
+        const isCurrentUser = Number(userId) === u.id;
+        const displayName = u.username || u.email.split('@')[0];
+        const avatarColor = u.id % 2 === 0 ? '#6366F1' : '#10B981'; // Indigo or Emerald green
+
+        // Trading calculation
         let uHoldingsValue = 0;
         u.holdings.forEach(h => {
           const currentPrice = stockPrices[h.stockId] || h.avgPrice;
           uHoldingsValue += h.quantity * currentPrice;
         });
-
         const totalNetWorth = u.cash + uHoldingsValue;
-        const isCurrentUser = Number(userId) === u.id;
 
-        // Clean username from email if not defined
-        const displayName = u.username || u.email.split('@')[0];
-
-        leaderboardEntries.push({
+        tradingEntries.push({
           id: `user-${u.id}`,
           username: isCurrentUser ? `${displayName} (You)` : displayName,
-          avatar: u.id % 2 === 0 ? '#6366F1' : '#10B981', // Indigo or Emerald green
+          avatar: avatarColor,
           totalValue: Math.round(totalNetWorth * 100) / 100,
           streak: u.streak || 1,
           isUser: isCurrentUser,
           league: u.league || 'BRONZE'
         });
+
+        // Learning calculation
+        learningEntries.push({
+          id: `user-${u.id}`,
+          username: isCurrentUser ? `${displayName} (You)` : displayName,
+          avatar: avatarColor,
+          totalXP: u.totalXP || 0,
+          streak: u.streak || 1,
+          completedCount: u.lessons.length,
+          isUser: isCurrentUser,
+          league: u.league || 'BRONZE'
+        });
       });
 
-      // 5. Sort alphabetically by username (A-Z)
-      leaderboardEntries.sort((a, b) => {
-        const nameA = a.username.replace(' (You)', '').toLowerCase();
-        const nameB = b.username.replace(' (You)', '').toLowerCase();
-        return nameA.localeCompare(nameB);
-      });
+      // 5. Sort Trading by Net Worth DESCENDING
+      tradingEntries.sort((a, b) => b.totalValue - a.totalValue);
 
-      // 6. Map rank indices (1-indexed)
-      const rankedLeaderboard = leaderboardEntries.map((entry, index) => ({
+      // 6. Sort Learning by XP DESCENDING
+      learningEntries.sort((a, b) => b.totalXP - a.totalXP);
+
+      // 7. Map rank indices (1-indexed)
+      const rankedTrading = tradingEntries.map((entry, index) => ({
+        ...entry,
+        rank: index + 1
+      }));
+
+      const rankedLearning = learningEntries.map((entry, index) => ({
         ...entry,
         rank: index + 1
       }));
 
       // Find user specific rank info
-      const userRankInfo = rankedLeaderboard.find(entry => entry.isUser);
+      const userTradingRankInfo = rankedTrading.find(entry => entry.isUser);
+      const userLearningRankInfo = rankedLearning.find(entry => entry.isUser);
 
       res.status(200).json({
-        userRank: userRankInfo ? userRankInfo.rank : 1,
+        userRank: userTradingRankInfo ? userTradingRankInfo.rank : 1,
         userNetWorth: Math.round(userNetWorth * 100) / 100,
-        leaderboard: rankedLeaderboard
+        userXP: user.totalXP || 0,
+        userLearningRank: userLearningRankInfo ? userLearningRankInfo.rank : 1,
+        completedLessonsCount: user.lessons.length,
+        tradingLeaderboard: rankedTrading,
+        learningLeaderboard: rankedLearning
       });
     } catch (error) {
       console.error(`❌ Failed to retrieve leaderboard for user ${userId}:`, error);
