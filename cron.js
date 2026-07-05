@@ -101,6 +101,106 @@ export const runWeeklyLeaguePromotions = async () => {
   }
 };
 
+export const runLobbyFinalization = async () => {
+  console.log('🔄 Checking for ended tournament lobbies...');
+  try {
+    const endedLobbies = await prisma.privateLobby.findMany({
+      where: {
+        status: 'ACTIVE',
+        endTime: { lte: new Date() }
+      },
+      include: {
+        entries: {
+          include: {
+            user: true,
+            holdings: { include: { stock: true } }
+          }
+        }
+      }
+    });
+
+    for (const lobby of endedLobbies) {
+      let highestProfit = -Infinity;
+      let winner = null;
+
+      for (const entry of lobby.entries) {
+        // Calculate dynamic portfolio value based on latest stock prices
+        let portfolioValue = entry.currentCash;
+        entry.holdings.forEach(h => {
+          portfolioValue += (h.quantity * h.stock.price);
+        });
+        
+        const profit = portfolioValue - entry.startingCash;
+        
+        // Update final profit in DB just to be safe
+        await prisma.privateLobbyEntry.update({
+          where: { id: entry.id },
+          data: { profit }
+        });
+
+        if (profit > highestProfit) {
+          highestProfit = profit;
+          winner = entry.user;
+        }
+      }
+
+      await prisma.privateLobby.update({
+        where: { id: lobby.id },
+        data: { status: 'COMPLETED' }
+      });
+
+      if (winner) {
+        await prisma.socialFeed.create({
+          data: {
+            userId: winner.id,
+            username: winner.username || winner.email.split('@')[0],
+            type: 'PROMOTION',
+            message: `🏆 Won the "${lobby.name}" contest with a return of ₹${highestProfit.toLocaleString('en-IN')}!`
+          }
+        });
+        console.log(`✅ Crowned ${winner.username} as winner of ${lobby.name}`);
+      }
+
+      // Phase 3: Cloning Recurring Lobbies
+      if (lobby.isRecurring) {
+        const durationMs = lobby.endTime.getTime() - lobby.startTime.getTime();
+        const nextStartTime = new Date(lobby.endTime.getTime() + (7 * 24 * 60 * 60 * 1000)); // Next week
+        const nextEndTime = new Date(nextStartTime.getTime() + durationMs);
+        
+        // Ensure new code
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let code = '';
+        let exists = true;
+        while (exists) {
+          code = '';
+          for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+          const check = await prisma.privateLobby.findUnique({ where: { code } });
+          if (!check) exists = false;
+        }
+
+        await prisma.privateLobby.create({
+          data: {
+            code,
+            name: `${lobby.name} (Recurring)`,
+            hostId: lobby.hostId,
+            startingCash: lobby.startingCash,
+            startTime: nextStartTime,
+            endTime: nextEndTime,
+            status: 'ACTIVE',
+            restrictNifty50: lobby.restrictNifty50,
+            isPublic: lobby.isPublic,
+            maxParticipants: lobby.maxParticipants,
+            isRecurring: true
+          }
+        });
+        console.log(`🔁 Cloned recurring lobby ${lobby.name} for next week.`);
+      }
+    }
+  } catch (error) {
+    console.error('❌ Lobby finalization error:', error);
+  }
+};
+
 export const initCronJobs = () => {
   // Run Daily at 3:30 PM
   cron.schedule('30 15 * * *', () => {
@@ -110,6 +210,11 @@ export const initCronJobs = () => {
   // Run Weekly on Fridays at 3:35 PM
   cron.schedule('35 15 * * 5', () => {
     runWeeklyLeaguePromotions();
+  });
+
+  // Run every 5 minutes to finalize ended lobbies
+  cron.schedule('*/5 * * * *', () => {
+    runLobbyFinalization();
   });
 
   console.log('⏳ Gamification Cron Jobs initialized.');

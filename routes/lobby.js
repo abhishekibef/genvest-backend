@@ -25,9 +25,46 @@ export function getLobbyRouter(prisma) {
     return code;
   }
 
+  // 0. GET /api/lobby/public - Get public lobbies
+  router.get('/public', async (req, res) => {
+    try {
+      const lobbies = await prisma.privateLobby.findMany({
+        where: {
+          isPublic: true,
+          status: 'ACTIVE',
+          endTime: { gt: new Date() }
+        },
+        include: {
+          host: true,
+          _count: {
+            select: { entries: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const formatted = lobbies.map(l => ({
+        id: l.id,
+        code: l.code,
+        name: l.name,
+        startingCash: l.startingCash,
+        startTime: l.startTime,
+        endTime: l.endTime,
+        status: l.status,
+        hostName: l.host.name || l.host.email.split('@')[0],
+        participantCount: l._count.entries,
+        maxParticipants: l.maxParticipants
+      }));
+      res.json({ lobbies: formatted });
+    } catch (error) {
+      console.error('Fetch Public Lobbies Error:', error);
+      res.status(500).json({ error: 'Failed to fetch public lobbies.' });
+    }
+  });
+
   // 1. POST /api/lobby/create - Create a private tournament lobby
   router.post('/create', async (req, res) => {
-    const { hostId, name, startingCash, startTime, endTime } = req.body;
+    const { hostId, name, startingCash, startTime, endTime, restrictNifty50, isPublic, maxParticipants, isRecurring } = req.body;
 
     if (!hostId || !name || !startTime || !endTime) {
       return res.status(400).json({ error: 'Missing required parameters: hostId, name, startTime, endTime' });
@@ -49,7 +86,11 @@ export function getLobbyRouter(prisma) {
           startingCash: startingCash ? parseFloat(startingCash) : 1000000.0,
           startTime: new Date(startTime),
           endTime: new Date(endTime),
-          status: 'ACTIVE'
+          status: 'ACTIVE',
+          restrictNifty50: restrictNifty50 !== undefined ? Boolean(restrictNifty50) : true,
+          isPublic: isPublic !== undefined ? Boolean(isPublic) : false,
+          maxParticipants: maxParticipants ? Number(maxParticipants) : null,
+          isRecurring: isRecurring !== undefined ? Boolean(isRecurring) : false
         }
       });
 
@@ -92,6 +133,14 @@ export function getLobbyRouter(prisma) {
       // Check if lobby is completed
       if (lobby.status === 'COMPLETED' || new Date(lobby.endTime) < new Date()) {
         return res.status(400).json({ error: 'This tournament lobby has already ended.' });
+      }
+
+      // Check maxParticipants
+      if (lobby.maxParticipants) {
+        const currentCount = await prisma.privateLobbyEntry.count({ where: { lobbyId: lobby.id } });
+        if (currentCount >= lobby.maxParticipants) {
+          return res.status(400).json({ error: 'This lobby is full.' });
+        }
       }
 
       // Check if user exists
@@ -352,6 +401,13 @@ export function getLobbyRouter(prisma) {
       const now = new Date();
       if (now < new Date(lobby.startTime) || now > new Date(lobby.endTime)) {
         return res.status(400).json({ error: 'Trading is only allowed while the tournament lobby is active.' });
+      }
+
+      if (lobby.restrictNifty50 && type === 'BUY') {
+        const nifty50 = ['RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'INFY', 'ITC', 'SBIN', 'BHARTIARTL', 'BAJFINANCE', 'LARSEN', 'HINDUNILVR', 'AXISBANK', 'KOTAKBANK', 'LT', 'MARUTI', 'SUNPHARMA', 'TITAN', 'ULTRACEMCO', 'TATAMOTORS', 'M&M', 'ASIANPAINT', 'NTPC', 'TATASTEEL', 'POWERGRID', 'BAJAJFINSV', 'HCLTECH', 'ADANIENT', 'ONGC', 'WIPRO', 'ADANIPORTS', 'NESTLEIND', 'GRASIM', 'JSWSTEEL', 'TECHM', 'HINDALCO', 'TATACONSUM', 'BRITANNIA', 'CIPLA', 'INDUSINDBK', 'APOLLOHOSP', 'EICHERMOT', 'DIVISLAB', 'DRREDDY', 'COALINDIA', 'BAJAJ-AUTO', 'HEROMOTOCO', 'UPL', 'BPCL', 'SBILIFE', 'HDFCLIFE'];
+        if (!nifty50.includes(stockId.toUpperCase())) {
+          return res.status(400).json({ error: 'This contest restricts buying to Nifty 50 stocks only.' });
+        }
       }
 
       const entry = await prisma.privateLobbyEntry.findUnique({

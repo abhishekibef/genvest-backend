@@ -237,6 +237,10 @@ model PrivateLobby {
   status        String                 @default("ACTIVE") // "ACTIVE", "COMPLETED"
   startTime     DateTime
   endTime       DateTime
+  restrictNifty50 Boolean              @default(true)
+  isPublic        Boolean              @default(false)
+  maxParticipants Int?
+  isRecurring     Boolean              @default(false)
   createdAt     DateTime               @default(now())
   
   host          User                   @relation("HostedLobbies", fields: [hostId], references: [id], onDelete: Cascade)
