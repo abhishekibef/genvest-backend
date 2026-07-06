@@ -351,8 +351,15 @@ export function getLearnRouter(prisma) {
         ? Math.round(userLessons.reduce((sum, ul) => sum + ul.score, 0) / completedCount)
         : 0;
 
-      // Determine earned badges
       const earnedBadges = BADGE_MILESTONES.filter(m => completedCount >= m.count);
+
+      // Find next uncompleted lesson
+      const completedLessonIds = userLessons.map(ul => ul.lessonId);
+      const nextLesson = await prisma.lesson.findFirst({
+        where: { id: { notIn: completedLessonIds } },
+        orderBy: [{ levelId: 'asc' }, { lessonNumber: 'asc' }],
+        include: { level: true }
+      });
 
       res.status(200).json({
         totalXP: user?.totalXP || 0,
@@ -362,7 +369,12 @@ export function getLearnRouter(prisma) {
         totalLessons,
         progressPercent: totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0,
         averageScore,
-        earnedBadges
+        earnedBadges,
+        nextLesson: nextLesson ? {
+          levelName: `Level ${nextLesson.level.number}: ${nextLesson.level.title}`,
+          lessonTitle: nextLesson.title,
+          duration: nextLesson.readTime || '5'
+        } : null
       });
     } catch (error) {
       console.error(`❌ Failed to get progress for user ${userId}:`, error);
