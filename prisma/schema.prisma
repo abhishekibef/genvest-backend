@@ -42,10 +42,22 @@ model User {
   lobbyEntries           PrivateLobbyEntry[]
   lobbyTransactions      PrivateLobbyTransaction[]
 
-  // Gamification & Leagues
+  // Gamification & Leagues (old Diamond/Silver system — kept as-is)
   league                 String                 @default("BRONZE")
   highestLeague          String                 @default("BRONZE")
   socialFeeds            SocialFeed[]
+
+  // ROI & Tier System (A/B/C)
+  tier                   String                 @default("B")        // "A", "B", or "C"
+  tierRank               Int                    @default(0)
+  globalRank             Int                    @default(0)
+  roiPercentage          Float                  @default(0.0)
+  lastTierUpdate         DateTime               @default(now())
+  portfolioSnapshots     PortfolioSnapshot[]
+
+  @@index([roiPercentage])
+  @@index([tier])
+  @@index([globalRank])
 }
 
 
@@ -290,6 +302,21 @@ model PrivateLobbyTransaction {
   lobby         PrivateLobby        @relation(fields: [lobbyId], references: [id], onDelete: Cascade)
   user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   stock         Stock               @relation(fields: [stockId], references: [id])
+}
+
+// ========================
+// PORTFOLIO SNAPSHOT MODELS (for 7-day / 30-day ROI)
+// ========================
+
+model PortfolioSnapshot {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  netWorth  Float
+  snapshot  DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, snapshot])
 }
 
 // ========================

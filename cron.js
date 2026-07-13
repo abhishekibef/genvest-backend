@@ -201,13 +201,175 @@ export const runLobbyFinalization = async () => {
   }
 };
 
+// ============================================================
+// LEADERBOARD CACHE (shared with leaderboard route)
+// ============================================================
+export const leaderboardCache = new Map(); // key: "view:timeframe", value: { data, expiresAt }
+
+export const invalidateLeaderboardCache = () => {
+  leaderboardCache.clear();
+  console.log('🗑️ Leaderboard cache cleared.');
+};
+
+// ============================================================
+// TIER CALCULATION HELPER
+// ============================================================
+function calculateTier(roi) {
+  if (roi >= 20) return 'A';
+  if (roi >= -5) return 'B';
+  return 'C';
+}
+
+// ============================================================
+// WEEKLY TIER RECALCULATION — Every Sunday 12:00 AM IST
+// Cron: '30 18 * * 6' = Saturday 6:30 PM UTC = Sunday 12:00 AM IST
+// ============================================================
+export const runWeeklyTierRecalculation = async () => {
+  console.log('🏆 Running Weekly Tier Recalculation (A/B/C)...');
+  try {
+    // 1. Fetch all users with holdings and stock prices
+    const users = await prisma.user.findMany({
+      include: { holdings: { include: { stock: true } } }
+    });
+
+    const stocks = await prisma.stock.findMany();
+    const stockPrices = {};
+    stocks.forEach(s => { stockPrices[s.id] = s.price; });
+
+    // 2. Calculate ROI for each user
+    const usersWithROI = users.map(u => {
+      let holdingsValue = 0;
+      u.holdings.forEach(h => {
+        holdingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice);
+      });
+      const netWorth = u.cash + holdingsValue;
+      const profitLoss = netWorth - 1000000;
+      const roi = (profitLoss / 1000000) * 100;
+      return { ...u, netWorth, profitLoss, roi, tier: calculateTier(roi) };
+    });
+
+    // 3. Sort by ROI DESC, tie-break by profitLoss DESC, then createdAt ASC (older = higher rank)
+    usersWithROI.sort((a, b) => {
+      if (b.roi !== a.roi) return b.roi - a.roi;
+      if (b.profitLoss !== a.profitLoss) return b.profitLoss - a.profitLoss;
+      return new Date(a.createdAt) - new Date(b.createdAt);
+    });
+
+    // 4. Assign global ranks
+    const withGlobalRank = usersWithROI.map((u, i) => ({ ...u, globalRank: i + 1 }));
+
+    // 5. Assign tier ranks within each tier
+    const tierGroups = { A: [], B: [], C: [] };
+    withGlobalRank.forEach(u => tierGroups[u.tier].push(u));
+    const finalUsers = [
+      ...tierGroups.A.map((u, i) => ({ ...u, tierRank: i + 1 })),
+      ...tierGroups.B.map((u, i) => ({ ...u, tierRank: i + 1 })),
+      ...tierGroups.C.map((u, i) => ({ ...u, tierRank: i + 1 })),
+    ];
+
+    // 6. Update each user in DB & send SocialFeed notifications for tier changes
+    for (const u of finalUsers) {
+      const oldTier = u.tier; // fetched from DB
+      const newTier = u.tier; // just calculated — same variable, but we need the DB value
+      // Re-fetch old tier from the original user object
+      const dbUser = users.find(x => x.id === u.id);
+      const previousTier = dbUser?.tier || 'B';
+
+      await prisma.user.update({
+        where: { id: u.id },
+        data: {
+          tier: u.tier,
+          tierRank: u.tierRank,
+          globalRank: u.globalRank,
+          roiPercentage: Math.round(u.roi * 100) / 100,
+          lastTierUpdate: new Date()
+        }
+      });
+
+      // Notify on tier change
+      if (previousTier !== u.tier) {
+        const promoted = u.tier < previousTier; // A < B < C alphabetically = promotion
+        const tierLabels = { A: 'Tier A (Elite) 👑', B: 'Tier B (Solid) ⭐', C: 'Tier C (Learning) 📚' };
+        await prisma.socialFeed.create({
+          data: {
+            userId: u.id,
+            username: u.username || u.email.split('@')[0],
+            type: 'PROMOTION',
+            message: promoted
+              ? `🎉 Promoted to ${tierLabels[u.tier]}! ROI: ${u.roi >= 0 ? '+' : ''}${u.roi.toFixed(2)}% | Global Rank #${u.globalRank}`
+              : `📉 Moved to ${tierLabels[u.tier]}. ROI: ${u.roi >= 0 ? '+' : ''}${u.roi.toFixed(2)}%. Don't worry, bounce back next week! 💪`
+          }
+        });
+      }
+    }
+
+    // 7. Invalidate leaderboard cache
+    invalidateLeaderboardCache();
+    console.log(`✅ Tier recalculation complete for ${finalUsers.length} users.`);
+  } catch (error) {
+    console.error('❌ Weekly tier recalculation error:', error);
+  }
+};
+
+// ============================================================
+// DAILY PORTFOLIO SNAPSHOT — Every day at 11:59 PM IST
+// Cron: '29 18 * * *' = 6:29 PM UTC = 11:59 PM IST
+// ============================================================
+export const runDailyPortfolioSnapshot = async () => {
+  console.log('📸 Running Daily Portfolio Snapshot...');
+  try {
+    const users = await prisma.user.findMany({
+      include: { holdings: { include: { stock: true } } }
+    });
+    const stocks = await prisma.stock.findMany();
+    const stockPrices = {};
+    stocks.forEach(s => { stockPrices[s.id] = s.price; });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (const u of users) {
+      // Day 1 priming: if user has no snapshot at all, seed a baseline of ₹10L
+      const existingCount = await prisma.portfolioSnapshot.count({ where: { userId: u.id } });
+
+      let holdingsValue = 0;
+      u.holdings.forEach(h => {
+        holdingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice);
+      });
+      const netWorth = u.cash + holdingsValue;
+
+      if (existingCount === 0) {
+        // Seed starting capital snapshot (Day 0 = when they joined with ₹10L)
+        await prisma.portfolioSnapshot.create({
+          data: { userId: u.id, netWorth: 1000000, snapshot: u.createdAt }
+        });
+      }
+
+      // Save today's snapshot (upsert by checking today's date)
+      const todaySnapshot = await prisma.portfolioSnapshot.findFirst({
+        where: { userId: u.id, snapshot: { gte: today } }
+      });
+
+      if (!todaySnapshot) {
+        await prisma.portfolioSnapshot.create({
+          data: { userId: u.id, netWorth }
+        });
+      }
+    }
+
+    console.log(`✅ Portfolio snapshots saved for ${users.length} users.`);
+  } catch (error) {
+    console.error('❌ Daily snapshot error:', error);
+  }
+};
+
 export const initCronJobs = () => {
-  // Run Daily at 3:30 PM
+  // Run Daily at 3:30 PM IST (market close)
   cron.schedule('30 15 * * *', () => {
     runDailyTournamentReset();
   });
 
-  // Run Weekly on Fridays at 3:35 PM
+  // Run Weekly on Fridays at 3:35 PM IST (old Diamond/Silver league system)
   cron.schedule('35 15 * * 5', () => {
     runWeeklyLeaguePromotions();
   });
@@ -215,6 +377,16 @@ export const initCronJobs = () => {
   // Run every 5 minutes to finalize ended lobbies
   cron.schedule('*/5 * * * *', () => {
     runLobbyFinalization();
+  });
+
+  // Weekly Tier Recalculation — Sunday 12:00 AM IST (Saturday 6:30 PM UTC)
+  cron.schedule('30 18 * * 6', () => {
+    runWeeklyTierRecalculation();
+  });
+
+  // Daily Portfolio Snapshot — 11:59 PM IST (6:29 PM UTC)
+  cron.schedule('29 18 * * *', () => {
+    runDailyPortfolioSnapshot();
   });
 
   console.log('⏳ Gamification Cron Jobs initialized.');
