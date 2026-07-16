@@ -25,8 +25,10 @@ import { getCompetitionRouter } from './routes/competition.js';
 import { getBadgesRouter } from './routes/badges.js';
 import { getTournamentRouter } from './routes/tournament.js';
 import { getLobbyRouter } from './routes/lobby.js';
+import { getWeeklyContestRouter } from './routes/weeklyContest.js';
 import { getXpRouter } from './routes/xp.js';
 import { getAiRouter } from './routes/ai.js';
+import { getPaymentRouter } from './routes/payment.js';
 import { runSimulationMiddleware } from './simulation.js';
 import { initCronJobs } from './cron.js';
 
@@ -56,8 +58,10 @@ app.use('/api/competition', getCompetitionRouter(prisma));
 app.use('/api/badges', getBadgesRouter(prisma));
 app.use('/api/tournament', getTournamentRouter(prisma));
 app.use('/api/lobby', getLobbyRouter(prisma));
+app.use('/api/weekly-contest', getWeeklyContestRouter(prisma));
 app.use('/api/xp', getXpRouter(prisma));
 app.use('/api/ai', getAiRouter());
+app.use('/api/payment', getPaymentRouter(prisma));
 
 // Social Feed API
 app.get('/api/social-feed', async (req, res) => {

@@ -361,6 +361,108 @@ export const runDailyPortfolioSnapshot = async () => {
   } catch (error) {
     console.error('❌ Daily snapshot error:', error);
   }
+// ============================================================
+// WEEKLY CONTEST CRONS
+// ============================================================
+export const runWeeklyContestCreation = async () => {
+  console.log('🚀 Running Weekly Contest Creation (Monday 9 AM)...');
+  try {
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    const contest = await prisma.weeklyContest.create({
+      data: {
+        weekStart,
+        weekEnd,
+        batchNumber: 1,
+        status: 'ACTIVE',
+        maxSlots: 100
+      }
+    });
+    console.log(`✅ Created Weekly Contest Batch 1 for week starting ${weekStart.toISOString()}`);
+  } catch (error) {
+    console.error('❌ Weekly contest creation error:', error);
+  }
+};
+
+export const runWeeklyContestFinalization = async () => {
+  console.log('🏁 Running Weekly Contest Finalization (Sunday 11:59 PM)...');
+  try {
+    const activeContests = await prisma.weeklyContest.findMany({
+      where: { status: 'ACTIVE', weekEnd: { lte: new Date() } },
+      include: {
+        entries: {
+          include: {
+            user: true,
+            holdings: { include: { stock: true } }
+          }
+        }
+      }
+    });
+
+    for (const contest of activeContests) {
+      for (const entry of contest.entries) {
+        let portfolioValue = entry.currentCash;
+        entry.holdings.forEach(h => {
+          portfolioValue += (h.quantity * h.stock.price);
+        });
+        const profit = portfolioValue - entry.startingCash;
+        
+        await prisma.weeklyContestEntry.update({
+          where: { id: entry.id },
+          data: { profit }
+        });
+        entry.profit = profit;
+      }
+
+      contest.entries.sort((a, b) => b.profit - a.profit);
+      
+      const prizes = [5000, 3500, 2000];
+      
+      for (let i = 0; i < contest.entries.length; i++) {
+        const entry = contest.entries[i];
+        const rank = i + 1;
+        let cashPrizeWon = 0;
+        
+        if (rank <= 3 && entry.user.totalXP >= 300) {
+          cashPrizeWon = prizes[rank - 1];
+        }
+
+        await prisma.weeklyContestEntry.update({
+          where: { id: entry.id },
+          data: { 
+            rank, 
+            cashPrizeWon,
+            prizeGiven: true
+          }
+        });
+
+        if (cashPrizeWon > 0) {
+          await prisma.socialFeed.create({
+            data: {
+              userId: entry.user.id,
+              username: entry.user.username || entry.user.email.split('@')[0],
+              type: 'PROMOTION',
+              message: `🏆 Won ₹${cashPrizeWon} in the Weekly Contest (Batch ${contest.batchNumber})!`
+            }
+          });
+        }
+      }
+
+      await prisma.weeklyContest.update({
+        where: { id: contest.id },
+        data: { status: 'COMPLETED' }
+      });
+      console.log(`✅ Finalized Weekly Contest Batch ${contest.batchNumber}`);
+    }
+  } catch (error) {
+    console.error('❌ Weekly contest finalization error:', error);
+  }
 };
 
 export const initCronJobs = () => {
@@ -387,6 +489,16 @@ export const initCronJobs = () => {
   // Daily Portfolio Snapshot — 11:59 PM IST (6:29 PM UTC)
   cron.schedule('29 18 * * *', () => {
     runDailyPortfolioSnapshot();
+  });
+
+  // Weekly Contest Creation — Monday 9:00 AM IST (Sunday 3:30 AM UTC)
+  cron.schedule('30 3 * * 1', () => {
+    runWeeklyContestCreation();
+  });
+
+  // Weekly Contest Finalization — Sunday 11:59 PM IST (Sunday 6:29 PM UTC)
+  cron.schedule('29 18 * * 0', () => {
+    runWeeklyContestFinalization();
   });
 
   console.log('⏳ Gamification Cron Jobs initialized.');

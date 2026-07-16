@@ -55,6 +55,16 @@ model User {
   lastTierUpdate         DateTime               @default(now())
   portfolioSnapshots     PortfolioSnapshot[]
 
+  // Payment & Premium
+  isPremium          Boolean       @default(false)
+  premiumExpiresAt   DateTime?
+  orders             Order[]
+  subscription       Subscription?
+
+  // Weekly Contest System
+  weeklyContestEntries       WeeklyContestEntry[]
+  weeklyContestTransactions  WeeklyContestTransaction[]
+
   @@index([roiPercentage])
   @@index([tier])
   @@index([globalRank])
@@ -79,6 +89,10 @@ model Stock {
   // Private Lobby System
   lobbyHoldings          PrivateLobbyHolding[]
   lobbyTransactions      PrivateLobbyTransaction[]
+
+  // Weekly Contest System
+  weeklyContestHoldings      WeeklyContestHolding[]
+  weeklyContestTransactions  WeeklyContestTransaction[]
 }
 
 model Holding {
@@ -253,6 +267,7 @@ model PrivateLobby {
   isPublic        Boolean              @default(false)
   maxParticipants Int?
   isRecurring     Boolean              @default(false)
+  entryFee        Float                @default(0)
   createdAt     DateTime               @default(now())
   
   host          User                   @relation("HostedLobbies", fields: [hostId], references: [id], onDelete: Cascade)
@@ -332,4 +347,106 @@ model SocialFeed {
   timestamp DateTime @default(now())
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ========================
+// PAYMENT SYSTEM MODELS
+// ========================
+
+model Order {
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  razorpayOrderId   String   @unique
+  razorpayPaymentId String?
+  amount            Float
+  currency          String   @default("INR")
+  status            String   @default("created") // created, paid, failed
+  type              String   // "premium" or "contest"
+  description       String?
+  metadata          String?  // JSON string for extra data (planId, lobbyCode, etc.)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Subscription {
+  id                     Int       @id @default(autoincrement())
+  userId                 Int       @unique
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planType               String    // "monthly" or "yearly"
+  status                 String    @default("active") // active, expired, cancelled
+  startDate              DateTime  @default(now())
+  endDate                DateTime
+  razorpayPaymentId      String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+}
+
+// ========================
+// WEEKLY CONTEST MODELS
+// ========================
+
+model WeeklyContest {
+  id           Int                    @id @default(autoincrement())
+  weekStart    DateTime               // Monday 00:00 IST
+  weekEnd      DateTime               // Sunday 23:59 IST
+  batchNumber  Int                    @default(1)
+  status       String                 @default("ACTIVE") // "ACTIVE", "COMPLETED"
+  maxSlots     Int                    @default(100)
+  createdAt    DateTime               @default(now())
+
+  entries      WeeklyContestEntry[]
+  transactions WeeklyContestTransaction[]
+
+  @@unique([weekStart, batchNumber])
+}
+
+model WeeklyContestEntry {
+  id            Int            @id @default(autoincrement())
+  contestId     Int
+  userId        Int
+  startingCash  Float          @default(1000000.0)
+  currentCash   Float          @default(1000000.0)
+  profit        Float          @default(0.0)
+  rank          Int?
+  prizeGiven    Boolean        @default(false)
+  cashPrizeWon  Float          @default(0.0)
+  joinedAt      DateTime       @default(now())
+
+  contest       WeeklyContest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings      WeeklyContestHolding[]
+
+  @@unique([userId, contestId])
+}
+
+model WeeklyContestHolding {
+  id        Int                @id @default(autoincrement())
+  entryId   Int
+  stockId   String
+  quantity  Int
+  avgPrice  Float
+
+  entry     WeeklyContestEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  stock     Stock              @relation(fields: [stockId], references: [id])
+
+  @@unique([entryId, stockId])
+}
+
+model WeeklyContestTransaction {
+  id         Int            @id @default(autoincrement())
+  contestId  Int
+  userId     Int
+  stockId    String
+  type       String
+  quantity   Int
+  price      Float
+  timestamp  DateTime       @default(now())
+
+  contest    WeeklyContest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stock      Stock          @relation(fields: [stockId], references: [id])
 }

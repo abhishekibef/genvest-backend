@@ -53,7 +53,8 @@ export function getLobbyRouter(prisma) {
         status: l.status,
         hostName: l.host.name || l.host.email.split('@')[0],
         participantCount: l._count.entries,
-        maxParticipants: l.maxParticipants
+        maxParticipants: l.maxParticipants,
+        entryFee: l.entryFee
       }));
       res.json({ lobbies: formatted });
     } catch (error) {
@@ -64,7 +65,7 @@ export function getLobbyRouter(prisma) {
 
   // 1. POST /api/lobby/create - Create a private tournament lobby
   router.post('/create', async (req, res) => {
-    const { hostId, name, startingCash, startTime, endTime, restrictNifty50, isPublic, maxParticipants, isRecurring } = req.body;
+    const { hostId, name, startingCash, startTime, endTime, restrictNifty50, isPublic, maxParticipants, isRecurring, entryFee } = req.body;
 
     if (!hostId || !name || !startTime || !endTime) {
       return res.status(400).json({ error: 'Missing required parameters: hostId, name, startTime, endTime' });
@@ -90,7 +91,8 @@ export function getLobbyRouter(prisma) {
           restrictNifty50: restrictNifty50 !== undefined ? Boolean(restrictNifty50) : true,
           isPublic: isPublic !== undefined ? Boolean(isPublic) : false,
           maxParticipants: maxParticipants ? Number(maxParticipants) : null,
-          isRecurring: isRecurring !== undefined ? Boolean(isRecurring) : false
+          isRecurring: isRecurring !== undefined ? Boolean(isRecurring) : false,
+          entryFee: entryFee ? parseFloat(entryFee) : 0
         }
       });
 
@@ -154,6 +156,25 @@ export function getLobbyRouter(prisma) {
 
       if (existingEntry) {
         return res.status(400).json({ error: 'You have already joined this lobby.' });
+      }
+
+      // If lobby has an entry fee, verify payment before joining
+      if (lobby.entryFee && lobby.entryFee > 0) {
+        const paidOrder = await prisma.order.findFirst({
+          where: {
+            userId: Number(userId),
+            type: 'contest',
+            status: 'paid',
+            metadata: { contains: lobby.code },
+          },
+        });
+        if (!paidOrder) {
+          return res.status(402).json({
+            error: 'This contest requires a paid entry fee. Please complete payment first.',
+            entryFee: lobby.entryFee,
+            lobbyCode: lobby.code,
+          });
+        }
       }
 
       // Create lobby entry
