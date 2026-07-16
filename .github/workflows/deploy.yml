@@ -34,4 +34,10 @@ jobs:
             echo "🔄 Restarting PM2 processes..."
             pm2 restart all || pm2 start server.js --name genvest-backend
             pm2 save
-            echo "✅ Backend deployed successfully!"
+            echo "⏳ Waiting for server to boot..."
+            sleep 5
+            echo "📊 PM2 Status:"
+            pm2 status
+            echo "📋 Server logs (last 50 lines):"
+            tail -n 50 ~/.pm2/logs/*.log 2>/dev/null || pm2 logs --lines 50 --no-colors || true
+            echo "✅ Backend deploy script completed!"
