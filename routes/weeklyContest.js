@@ -165,6 +165,9 @@ export function getWeeklyContestRouter(prisma) {
   // 4. GET /leaderboard/:contestId - Get leaderboard for a specific batch
   router.get('/leaderboard/:contestId', async (req, res) => {
     const { contestId } = req.params;
+    if (isNaN(Number(contestId))) {
+      return res.status(400).json({ error: 'Invalid contest ID' });
+    }
 
     try {
       const contest = await prisma.weeklyContest.findUnique({
