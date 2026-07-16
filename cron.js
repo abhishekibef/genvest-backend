@@ -361,6 +361,8 @@ export const runDailyPortfolioSnapshot = async () => {
   } catch (error) {
     console.error('❌ Daily snapshot error:', error);
   }
+};
+
 // ============================================================
 // WEEKLY CONTEST CRONS
 // ============================================================
