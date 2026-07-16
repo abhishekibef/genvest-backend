@@ -82,6 +82,28 @@ app.get('/api/ping', (req, res) => {
   res.status(200).json({ status: 'ok', time: new Date() });
 });
 
+// Debug deploy endpoint
+app.get('/api/debug-deploy', (req, res) => {
+  try {
+    const gitLog = execSync('git log -n 1', { encoding: 'utf8' });
+    const gitStatus = execSync('git status', { encoding: 'utf8' });
+    const dir = process.cwd();
+    res.json({
+      success: true,
+      dir,
+      port: PORT,
+      gitLog,
+      gitStatus,
+      env: {
+        NODE_ENV: process.env.NODE_ENV,
+        PORT: process.env.PORT
+      }
+    });
+  } catch (error) {
+    res.json({ success: false, error: error.message });
+  }
+});
+
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('❌ Server error:', err.stack);
