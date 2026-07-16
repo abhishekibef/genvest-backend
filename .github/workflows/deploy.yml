@@ -17,10 +17,21 @@ jobs:
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
             export PATH=/usr/bin:/bin:/usr/local/bin:/usr/local/sbin:$PATH
-            cd ${{ secrets.BACKEND_PATH }}
-            git pull origin main
-            npm install --production
-            npx prisma generate
+            echo "🔍 Finding all backend directories..."
+            BACKEND_DIRS=$(find /root /home /var/www -type d -name "backend" -o -name "genvest-backend" 2>/dev/null | grep -E "backend|genz-trading-app" || true)
+            
+            for dir in $BACKEND_DIRS; do
+              if [ -d "$dir/.git" ]; then
+                echo "🚀 Updating backend in $dir..."
+                cd "$dir"
+                git fetch --all
+                git reset --hard origin/main
+                npm install --production || true
+                npx prisma generate || true
+              fi
+            done
+            
+            echo "🔄 Restarting PM2 processes..."
             pm2 restart all || pm2 start server.js --name genvest-backend
             pm2 save
             echo "✅ Backend deployed successfully!"
