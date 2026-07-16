@@ -424,14 +424,14 @@ export const runWeeklyContestFinalization = async () => {
 
       contest.entries.sort((a, b) => b.profit - a.profit);
       
-      const prizes = [5000, 3500, 2000];
+      const prizes = [3000, 2000, 1300, 900, 700, 600, 500, 400, 350, 250];
       
       for (let i = 0; i < contest.entries.length; i++) {
         const entry = contest.entries[i];
         const rank = i + 1;
         let cashPrizeWon = 0;
         
-        if (rank <= 3 && entry.user.totalXP >= 300) {
+        if (rank <= 10 && entry.user.totalXP >= 300) {
           cashPrizeWon = prizes[rank - 1];
         }
 

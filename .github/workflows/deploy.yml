@@ -20,6 +20,7 @@ jobs:
             cd ${{ secrets.BACKEND_PATH }}
             git pull origin main
             npm install --production
+            npx prisma generate
             pm2 restart all || pm2 start server.js --name genvest-backend
             pm2 save
             echo "✅ Backend deployed successfully!"
