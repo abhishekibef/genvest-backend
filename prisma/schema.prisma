@@ -23,6 +23,7 @@ model User {
   gems             Int           @default(100)
   tourCompleted    Boolean       @default(false)
   startOfDayNetWorth Float       @default(1000000.0)
+  fcmToken         String?
   holdings         Holding[]
   transactions     Transaction[]
   lessons          UserLesson[]

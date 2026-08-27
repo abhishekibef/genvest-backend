@@ -11,11 +11,13 @@
     "db:studio": "npx prisma studio"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.12.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "node-cron": "^4.5.0",
+    "firebase-admin": "^14.3.0",
+    "node-cron": "^4.6.0",
     "prisma": "^5.12.1",
     "razorpay": "^2.9.8"
   },

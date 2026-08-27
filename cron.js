@@ -467,10 +467,17 @@ export const runWeeklyContestFinalization = async () => {
   }
 };
 
+import { runMarketClosePushNotifications } from './marketCloseCron.js';
+
 export const initCronJobs = () => {
   // Run Daily at 3:30 PM IST (market close)
   cron.schedule('30 15 * * *', () => {
     runDailyTournamentReset();
+  });
+  
+  // Send Post-Market AI Push Notifications at 3:35 PM IST
+  cron.schedule('35 15 * * *', () => {
+    runMarketClosePushNotifications();
   });
 
   // Run Weekly on Fridays at 3:35 PM IST (old Diamond/Silver league system)

@@ -59,6 +59,21 @@ async function start() {
   app.use('/api/ai', getAiRouter());
   app.use('/api/payment', getPaymentRouter(prisma));
 
+  app.post('/api/users/fcm-token', async (req, res) => {
+    try {
+      const { email, token } = req.body;
+      if (!email || !token) return res.status(400).json({ error: 'Missing email or token' });
+      await prisma.user.update({
+        where: { email },
+        data: { fcmToken: token }
+      });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error saving FCM token:', error);
+      res.status(500).json({ error: 'Failed to save token' });
+    }
+  });
+
   app.get('/api/social-feed', async (req, res) => {
     try {
       const feed = await prisma.socialFeed.findMany({
