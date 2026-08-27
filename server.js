@@ -61,34 +61,9 @@ async function start() {
 
   app.get('/api/test-push', async (req, res) => {
     try {
-      const { messaging } = await import('./firebaseAdmin.js');
-      if (!messaging) return res.send('<h1>Firebase not initialized!</h1>');
-      
-      const users = await prisma.user.findMany({
-        where: { fcmToken: { not: null } }
-      });
-
-      if (users.length === 0) {
-        return res.send('<h1>No tokens found! Please open the app on your phone so it registers.</h1>');
-      }
-
-      let successCount = 0;
-      let errors = [];
-      for (const user of users) {
-        try {
-          await messaging.send({
-            token: user.fcmToken,
-            notification: {
-              title: "Happy Rakshabandhan! 🎉",
-              body: "Wishing you a joyful Rakshabandhan and a great learning & investing journey ahead!"
-            }
-          });
-          successCount++;
-        } catch (err) {
-          errors.push(err.message);
-        }
-      }
-      res.send(`<h1>Sent Rakshabandhan push to ${successCount}/${users.length} users!</h1><p>Errors: ${errors.join(', ')}</p>`);
+      const { runMarketClosePushNotifications } = await import('./marketCloseCron.js');
+      await runMarketClosePushNotifications();
+      res.send('<h1>AI Market Analysis push blast triggered! Check your phone!</h1>');
     } catch (e) {
       res.send('Error: ' + e.stack);
     }
