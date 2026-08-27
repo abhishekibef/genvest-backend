@@ -1,18 +1,19 @@
-import admin from "firebase-admin";
+import { initializeApp, cert } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 import { b64Key } from "./encodedKey.js";
 
-let initialized = false;
+let messaging = null;
 
 try {
   const serviceAccount = JSON.parse(Buffer.from(b64Key, "base64").toString("utf-8"));
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
+  const app = initializeApp({
+    credential: cert(serviceAccount)
   });
-  initialized = true;
+  messaging = getMessaging(app);
   console.log("Firebase Admin Initialized Successfully");
 } catch (error) {
   console.error("Firebase Admin Initialization Error:", error);
 }
 
-export const messaging = initialized ? admin.messaging() : null;
+export { messaging };
 
