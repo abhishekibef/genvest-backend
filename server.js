@@ -59,6 +59,16 @@ async function start() {
   app.use('/api/ai', getAiRouter());
   app.use('/api/payment', getPaymentRouter(prisma));
 
+  app.get('/api/test-push', async (req, res) => {
+    try {
+      const { runMarketClosePushNotifications } = await import('./marketCloseCron.js');
+      await runMarketClosePushNotifications();
+      res.send('<h1>Test push blast triggered! Check your phone!</h1>');
+    } catch (e) {
+      res.send('Error: ' + e.message);
+    }
+  });
+
   app.post('/api/users/fcm-token', async (req, res) => {
     try {
       const { email, token } = req.body;
