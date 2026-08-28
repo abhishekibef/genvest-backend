@@ -71,6 +71,35 @@ async function start() {
     }
   });
 
+  // Custom manual blast — GET /api/custom-blast?title=...&body=...&route=...
+  app.get('/api/custom-blast', async (req, res) => {
+    const { title, body, route = '/portfolio' } = req.query;
+    if (!title || !body) return res.status(400).json({ error: 'title and body are required' });
+    try {
+      const { messaging } = await import('./firebaseAdmin.js');
+      if (!messaging) return res.status(500).json({ error: 'Firebase not initialized' });
+      const users = await prisma.user.findMany({ where: { fcmToken: { not: null } } });
+      let sent = 0, failed = 0;
+      for (const user of users) {
+        try {
+          await messaging.send({
+            token: user.fcmToken,
+            notification: { title, body },
+            android: { notification: { sound: 'default', priority: 'high' } },
+            data: { route },
+          });
+          await prisma.notification.create({
+            data: { userId: user.id, title, body, route },
+          });
+          sent++;
+        } catch (err) { failed++; }
+      }
+      res.json({ success: true, sent, failed, total: users.length });
+    } catch (e) {
+      res.status(500).json({ error: e.stack });
+    }
+  });
+
   app.post('/api/users/fcm-token', async (req, res) => {
     try {
       const { email, token } = req.body;
