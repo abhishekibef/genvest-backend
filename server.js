@@ -62,10 +62,10 @@ async function start() {
   app.get('/api/test-push', async (req, res) => {
     try {
       const { runMarketClosePushNotifications } = await import('./marketCloseCron.js');
-      await runMarketClosePushNotifications();
-      res.send('<h1>AI Market Analysis push blast triggered! Check your phone!</h1>');
+      const result = await runMarketClosePushNotifications();
+      res.json({ message: 'AI Market Analysis push blast triggered!', result });
     } catch (e) {
-      res.send('Error: ' + e.stack);
+      res.status(500).json({ error: e.stack });
     }
   });
 

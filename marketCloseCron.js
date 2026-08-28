@@ -38,55 +38,63 @@ async function fetchTodayMarketNews() {
 }
 
 export const runMarketClosePushNotifications = async () => {
-  console.log("Running Post-Market AI Push Notifications...");
-  if (!messaging) return;
+  let debugLogs = [];
+  const log = (msg) => { console.log(msg); debugLogs.push(msg); };
+  
+  log("Running Post-Market AI Push Notifications...");
+  if (!messaging) { log("Firebase messaging is null"); return { success: false, logs: debugLogs }; }
 
   try {
     const users = await prisma.user.findMany({
       where: { fcmToken: { not: null } },
       include: { holdings: { include: { stock: true } } }
     });
+    
+    log(`Found ${users.length} users with tokens.`);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    // Fetch market context once for all users to save API calls
     const marketNewsContext = await fetchTodayMarketNews();
+    log(`Fetched news: ${marketNewsContext.substring(0, 50)}...`);
 
     for (const user of users) {
-      const isActiveToday = user.lastLogin >= today;
+      const isActiveToday = user.lastActive >= today;
+      log(`User ${user.email} active today: ${isActiveToday}`);
 
       if (!isActiveToday) {
         try {
           await messaging.send({
             token: user.fcmToken,
             notification: {
-              title: "Market is Closed! ??",
-              body: "Come back to see today`s biggest movers and claim your daily XP."
+              title: "Market is Closed! 📉",
+              body: "Come back to see today's biggest movers and claim your daily XP."
             },
             data: { route: "/portfolio" }
           });
-        } catch (err) { }
+          log(`Sent inactive push to ${user.email}`);
+        } catch (err) { log(`Error sending inactive push to ${user.email}: ${err.message}`); }
         continue;
       }
 
       let portfolioContext = "";
-      let totalValue = user.cashBalance;
+      let totalValue = user.cash || 0;
       
-      if (user.holdings.length === 0) {
+      if (!user.holdings || user.holdings.length === 0) {
         portfolioContext = "No active investments. 100% cash.";
       } else {
         const holdingStrs = user.holdings.map(h => {
           const currentVal = h.quantity * h.stock.price;
           const profit = currentVal - (h.quantity * h.avgPrice);
           totalValue += currentVal;
-          return `${h.stock.symbol}: ?${currentVal.toFixed(0)} (Profit: ?${profit.toFixed(0)})`;
+          return `${h.stock.symbol}: ₹${currentVal.toFixed(0)} (Profit: ₹${profit.toFixed(0)})`;
         });
         portfolioContext = holdingStrs.join("; ");
       }
 
       const prompt = `You are a financial advisor for a Gen-Z virtual trading app. The Indian stock market just closed.
-User: ${user.name}
+User: ${user.name || 'Trader'}
+Total Net Worth: ₹${totalValue.toFixed(0)}
 Holdings: ${portfolioContext}
 Today Market News: ${marketNewsContext}
 
@@ -99,18 +107,24 @@ Use emojis. No hashtags. Keep it under 25 words if possible.`;
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const result = await model.generateContent(prompt);
         const aiMessage = result.response.text().trim();
+        log(`Generated AI Message for ${user.email}: ${aiMessage}`);
 
         await messaging.send({
           token: user.fcmToken,
           notification: {
-            title: "Your Daily Market Analysis ??",
+            title: "Your Daily Market Analysis 🤖",
             body: aiMessage
           },
           data: { route: "/portfolio" }
         });
-      } catch (err) { }
+        log(`Sent AI push to ${user.email}`);
+      } catch (err) { log(`Error sending AI push to ${user.email}: ${err.message}`); }
     }
-    console.log(`Sent post-market notifications to ${users.length} users.`);
-  } catch (error) { }
+    log(`Sent post-market notifications to ${users.length} users.`);
+    return { success: true, logs: debugLogs };
+  } catch (error) { 
+    log(`CRITICAL ERROR: ${error.message}`);
+    return { success: false, logs: debugLogs, error: error.message };
+  }
 };
 
