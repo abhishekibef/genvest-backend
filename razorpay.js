@@ -1,12 +1,29 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import { b64Config } from './razorpayConfig.js';
 
 let razorpay = null;
-if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+let rzpKeyId = process.env.RAZORPAY_KEY_ID;
+let rzpKeySecret = process.env.RAZORPAY_KEY_SECRET;
+let rzpWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+
+// Fallback to base64 config if env vars are missing (e.g. on DO)
+if (!rzpKeyId) {
+  try {
+    const config = JSON.parse(Buffer.from(b64Config, 'base64').toString('utf-8'));
+    rzpKeyId = config.RAZORPAY_KEY_ID;
+    rzpKeySecret = config.RAZORPAY_KEY_SECRET;
+    rzpWebhookSecret = config.RAZORPAY_WEBHOOK_SECRET;
+  } catch (e) {
+    console.error('Failed to load b64Config', e);
+  }
+}
+
+if (rzpKeyId && rzpKeySecret) {
   try {
     razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
+      key_id: rzpKeyId,
+      key_secret: rzpKeySecret,
     });
   } catch (err) {
     console.error('⚠️ Failed to initialize Razorpay client:', err.message);
@@ -32,10 +49,10 @@ export const razorpayService = {
 
   // Verify payment signature
   verifyPayment: (orderId, paymentId, signature) => {
-    if (!process.env.RAZORPAY_KEY_SECRET) return false;
+    if (!rzpKeySecret) return false;
     const body = orderId + '|' + paymentId;
     const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .createHmac('sha256', rzpKeySecret)
       .update(body)
       .digest('hex');
     return expectedSignature === signature;
@@ -51,13 +68,16 @@ export const razorpayService = {
 
   // Verify webhook signature
   verifyWebhookSignature: (body, signature) => {
-    if (!process.env.RAZORPAY_WEBHOOK_SECRET) return false;
+    if (!rzpWebhookSecret) return false;
     const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
+      .createHmac('sha256', rzpWebhookSecret)
       .update(body)
       .digest('hex');
     return expectedSignature === signature;
   },
+  
+  // Expose key id for frontend config
+  getKeyId: () => rzpKeyId
 };
 
 export default razorpayService;

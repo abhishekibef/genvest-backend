@@ -100,7 +100,7 @@ export function getPaymentRouter(prisma) {
           amount: order.amount, // in paise
           currency: order.currency,
         },
-        keyId: process.env.RAZORPAY_KEY_ID,
+        keyId: razorpayService.getKeyId(),
       });
     } catch (error) {
       console.error('❌ Create Order Error:', error);
