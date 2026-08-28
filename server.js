@@ -365,6 +365,8 @@ async function start() {
 
   app.get('/api/custom-blast', handleCustomBlast);
   app.post('/api/custom-blast', handleCustomBlast);
+  app.get('/api/blast', handleCustomBlast);
+  app.post('/api/blast', handleCustomBlast);
   app.get('/blast', handleCustomBlast);
   app.post('/blast', handleCustomBlast);
 
