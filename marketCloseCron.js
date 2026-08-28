@@ -1,4 +1,4 @@
-﻿import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { messaging } from "./firebaseAdmin.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { b64Gemini } from "./geminiConfig.js";
@@ -113,6 +113,11 @@ Use 1-2 emojis. Conversational tone. No hashtags.`;
           notification: { title, body },
           android: { notification: { sound: "default", priority: "high" } },
           data: { route: "/portfolio" },
+        });
+
+        // Save notification to DB for in-app history
+        await prisma.notification.create({
+          data: { userId: user.id, title, body, route: "/portfolio" },
         });
 
         // Mark notified today

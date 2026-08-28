@@ -67,9 +67,28 @@ model User {
   weeklyContestEntries       WeeklyContestEntry[]
   weeklyContestTransactions  WeeklyContestTransaction[]
 
+  // Notification History
+  notifications              Notification[]
+
   @@index([roiPercentage])
   @@index([tier])
   @@index([globalRank])
+}
+
+// ========================
+// NOTIFICATION HISTORY
+// ========================
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  route     String?  @default("/portfolio")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 
