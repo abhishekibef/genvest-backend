@@ -475,8 +475,8 @@ export const initCronJobs = () => {
     runDailyTournamentReset();
   });
   
-  // Send Post-Market AI Push Notifications at 3:35 PM IST
-  cron.schedule('35 15 * * *', () => {
+  // Send Post-Market AI Push Notifications at 3:35 PM IST (10:05 AM UTC)
+  cron.schedule('05 10 * * *', () => {
     runMarketClosePushNotifications();
   });
 
