@@ -1,130 +1,136 @@
-import { PrismaClient } from "@prisma/client";
+﻿import { PrismaClient } from "@prisma/client";
 import { messaging } from "./firebaseAdmin.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-
 import { b64Gemini } from "./geminiConfig.js";
 
 const prisma = new PrismaClient();
 const fallbackKey = Buffer.from(b64Gemini, "base64").toString("utf-8");
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || fallbackKey);
 
-const NEWS_RSS_FEEDS = [
-  "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
-  "https://www.moneycontrol.com/rss/latestnews.xml"
-];
+// Unicode-safe emojis (avoids encoding corruption during git/deployment)
+const EMOJI = {
+  chart:     "\uD83D\uDCC8",
+  chartDown: "\uD83D\uDCC9",
+  rocket:    "\uD83D\uDE80",
+};
+
+const NEWS_RSS_FEED = "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms";
 
 async function fetchTodayMarketNews() {
   try {
-    const res = await fetch(NEWS_RSS_FEEDS[0], { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(NEWS_RSS_FEED, { signal: AbortSignal.timeout(5000) });
     const text = await res.text();
-    const clean = text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, content) => content.trim());
-    
-    let newsSnippets = [];
-    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-    const titleRegex = /<title>(.*?)<\/title>/;
-    
-    let match;
-    while ((match = itemRegex.exec(clean)) !== null && newsSnippets.length < 5) {
-      const titleMatch = titleRegex.exec(match[1]);
-      if (titleMatch && titleMatch[1]) {
-        newsSnippets.push(titleMatch[1].replace(/<[^>]*>/g, "").trim());
-      }
+    const clean = text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, c) => c.trim());
+    let snippets = [];
+    const itemRx = /<item>([\s\S]*?)<\/item>/g;
+    const titleRx = /<title>(.*?)<\/title>/;
+    let m;
+    while ((m = itemRx.exec(clean)) !== null && snippets.length < 5) {
+      const t = titleRx.exec(m[1]);
+      if (t && t[1]) snippets.push(t[1].replace(/<[^>]*>/g, "").trim());
     }
-    return newsSnippets.join(". ");
+    return snippets.join(". ");
   } catch (e) {
-    console.error("Failed to fetch market news", e);
+    console.error("News fetch failed:", e.message);
     return "Market closed with mixed global cues.";
   }
 }
 
 export const runMarketClosePushNotifications = async () => {
-  let debugLogs = [];
-  const log = (msg) => { console.log(msg); debugLogs.push(msg); };
-  
+  let logs = [];
+  const log = (msg) => { console.log(msg); logs.push(msg); };
+
   log("Running Post-Market AI Push Notifications...");
-  if (!messaging) { log("Firebase messaging is null"); return { success: false, logs: debugLogs }; }
+  if (!messaging) { log("Firebase messaging is null."); return { success: false, logs }; }
 
   try {
     const users = await prisma.user.findMany({
       where: { fcmToken: { not: null } },
-      include: { holdings: { include: { stock: true } } }
+      include: { holdings: { include: { stock: true } } },
     });
-    
-    log(`Found ${users.length} users with tokens.`);
+    log(`Found ${users.length} users with FCM tokens.`);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
-    const marketNewsContext = await fetchTodayMarketNews();
-    log(`Fetched news: ${marketNewsContext.substring(0, 50)}...`);
+
+    const marketNews = await fetchTodayMarketNews();
+    log(`Market news: ${marketNews.substring(0, 80)}...`);
 
     for (const user of users) {
-      const isActiveToday = user.lastActive >= today;
-      log(`User ${user.email} active today: ${isActiveToday}`);
-
-      if (!isActiveToday) {
-        try {
-          await messaging.send({
-            token: user.fcmToken,
-            notification: {
-              title: "Market is Closed! 📉",
-              body: "Come back to see today's biggest movers and claim your daily XP."
-            },
-            data: { route: "/portfolio" }
-          });
-          log(`Sent inactive push to ${user.email}`);
-        } catch (err) { log(`Error sending inactive push to ${user.email}: ${err.message}`); }
+      // Skip users already notified today (duplicate prevention)
+      if (user.lastNotifiedAt && new Date(user.lastNotifiedAt) >= today) {
+        log(`Skipping ${user.email} — already notified today.`);
         continue;
       }
 
+      // Calculate portfolio P&L
+      let holdingsValue = 0;
+      let totalPnl = 0;
       let portfolioContext = "";
-      let totalValue = user.cash || 0;
-      
+
       if (!user.holdings || user.holdings.length === 0) {
-        portfolioContext = "No active investments. 100% cash.";
+        portfolioContext = "No active holdings, 100% cash.";
       } else {
-        const holdingStrs = user.holdings.map(h => {
-          const currentVal = h.quantity * h.stock.price;
-          const profit = currentVal - (h.quantity * h.avgPrice);
-          totalValue += currentVal;
-          return `${h.stock.symbol}: ₹${currentVal.toFixed(0)} (Profit: ₹${profit.toFixed(0)})`;
+        const lines = user.holdings.map((h) => {
+          const val = h.quantity * h.stock.price;
+          const pnl = val - h.quantity * h.avgPrice;
+          holdingsValue += val;
+          totalPnl += pnl;
+          return `${h.stock.symbol}: \u20B9${val.toFixed(0)} (P&L \u20B9${pnl.toFixed(0)})`;
         });
-        portfolioContext = holdingStrs.join("; ");
+        portfolioContext = lines.join("; ");
       }
 
-      const prompt = `You are a financial advisor for a Gen-Z virtual trading app. The Indian stock market just closed.
-User: ${user.name || 'Trader'}
-Total Net Worth: ₹${totalValue.toFixed(0)}
-Holdings: ${portfolioContext}
-Today Market News: ${marketNewsContext}
+      const netWorth = (user.cash || 0) + holdingsValue;
+      const pnlSign = totalPnl >= 0 ? "+" : "";
+      const pnlEmoji = totalPnl >= 0 ? EMOJI.rocket : EMOJI.chartDown;
 
-Write a very short, exciting 2-sentence push notification. 
-Sentence 1: Analyze how their specific portfolio did.
-Sentence 2: Explain WHY the overall market went up or down today based on the news.
-Use emojis. No hashtags. Keep it under 25 words if possible.`;
+      // Dynamic title showing actual P&L
+      const title = user.holdings && user.holdings.length > 0
+        ? `Portfolio: ${pnlSign}\u20B9${Math.abs(totalPnl).toFixed(0)} Today ${pnlEmoji}`
+        : `Market Closed ${EMOJI.chart} \u2014 See Today's Movers`;
+
+      const prompt = `You are a sharp, Gen-Z financial advisor for Moolzen, a virtual stock trading app. Indian market just closed.
+
+User: ${user.name || "Trader"}
+Net Worth: \u20B9${netWorth.toFixed(0)}
+Holdings: ${portfolioContext}
+Today's Headlines: ${marketNews}
+
+Write a push notification body (2 sentences, max 30 words total).
+Sentence 1: Comment on this user's portfolio using their actual numbers.
+Sentence 2: Give ONE reason WHY the market moved today based on the news.
+Use 1-2 emojis. Conversational tone. No hashtags.`;
 
       try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         const result = await model.generateContent(prompt);
-        const aiMessage = result.response.text().trim();
-        log(`Generated AI Message for ${user.email}: ${aiMessage}`);
+        const body = result.response.text().trim();
+        log(`AI for ${user.email}: ${body}`);
 
         await messaging.send({
           token: user.fcmToken,
-          notification: {
-            title: "Your Daily Market Analysis 🤖",
-            body: aiMessage
-          },
-          data: { route: "/portfolio" }
+          notification: { title, body },
+          android: { notification: { sound: "default", priority: "high" } },
+          data: { route: "/portfolio" },
         });
-        log(`Sent AI push to ${user.email}`);
-      } catch (err) { log(`Error sending AI push to ${user.email}: ${err.message}`); }
+
+        // Mark notified today
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { lastNotifiedAt: new Date() },
+        });
+
+        log(`Sent to ${user.email}`);
+      } catch (err) {
+        log(`Error for ${user.email}: ${err.message}`);
+      }
     }
-    log(`Sent post-market notifications to ${users.length} users.`);
-    return { success: true, logs: debugLogs };
-  } catch (error) { 
-    log(`CRITICAL ERROR: ${error.message}`);
-    return { success: false, logs: debugLogs, error: error.message };
+
+    log(`Done. Processed ${users.length} users.`);
+    return { success: true, logs };
+  } catch (error) {
+    log(`CRITICAL: ${error.message}`);
+    return { success: false, logs, error: error.message };
   }
 };
-

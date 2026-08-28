@@ -24,6 +24,7 @@ model User {
   tourCompleted    Boolean       @default(false)
   startOfDayNetWorth Float       @default(1000000.0)
   fcmToken         String?
+  lastNotifiedAt   DateTime?
   holdings         Holding[]
   transactions     Transaction[]
   lessons          UserLesson[]
