@@ -7,9 +7,12 @@ export function getNotificationsRouter(prisma) {
   // IMPORTANT: must be registered BEFORE the wildcard /:userId route
   router.get("/unread-count/:userId", async (req, res) => {
     const { userId } = req.params;
+    const id = Number(userId);
+    if (isNaN(id) || !id) return res.json({ count: 0 });
+
     try {
       const count = await prisma.notification.count({
-        where: { userId: Number(userId), read: false },
+        where: { userId: id, read: false },
       });
       res.json({ count });
     } catch (err) {
@@ -20,9 +23,12 @@ export function getNotificationsRouter(prisma) {
   // PATCH /api/notifications/mark-read/:userId — mark all as read
   router.patch("/mark-read/:userId", async (req, res) => {
     const { userId } = req.params;
+    const id = Number(userId);
+    if (isNaN(id) || !id) return res.json({ success: true });
+
     try {
       await prisma.notification.updateMany({
-        where: { userId: Number(userId), read: false },
+        where: { userId: id, read: false },
         data: { read: true },
       });
       res.json({ success: true });
@@ -35,9 +41,12 @@ export function getNotificationsRouter(prisma) {
   // IMPORTANT: wildcard route must come LAST
   router.get("/:userId", async (req, res) => {
     const { userId } = req.params;
+    const id = Number(userId);
+    if (isNaN(id) || !id) return res.json({ notifications: [] });
+
     try {
       const notifications = await prisma.notification.findMany({
-        where: { userId: Number(userId) },
+        where: { userId: id },
         orderBy: { createdAt: "desc" },
         take: 50,
       });
