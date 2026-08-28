@@ -2,8 +2,11 @@ import { PrismaClient } from "@prisma/client";
 import { messaging } from "./firebaseAdmin.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+import { b64Gemini } from "./geminiConfig.js";
+
 const prisma = new PrismaClient();
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const fallbackKey = Buffer.from(b64Gemini, "base64").toString("utf-8");
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || fallbackKey);
 
 const NEWS_RSS_FEEDS = [
   "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
@@ -37,7 +40,6 @@ async function fetchTodayMarketNews() {
 export const runMarketClosePushNotifications = async () => {
   console.log("Running Post-Market AI Push Notifications...");
   if (!messaging) return;
-  if (!process.env.GEMINI_API_KEY) return;
 
   try {
     const users = await prisma.user.findMany({
