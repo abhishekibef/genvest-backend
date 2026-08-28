@@ -104,7 +104,7 @@ Sentence 2: Explain WHY the overall market went up or down today based on the ne
 Use emojis. No hashtags. Keep it under 25 words if possible.`;
 
       try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         const result = await model.generateContent(prompt);
         const aiMessage = result.response.text().trim();
         log(`Generated AI Message for ${user.email}: ${aiMessage}`);
