@@ -1,5 +1,6 @@
-﻿import express from "express";
+import express from "express";
 import { DRIP_LESSONS } from "../emailDripTemplates.js";
+import { getResendApiKey, setResendApiKey } from "../resendConfig.js";
 import {
   generateApprovalToken,
   verifyApprovalToken,
@@ -12,15 +13,27 @@ import {
 export function getEmailDripRouter(prisma) {
   const router = express.Router();
 
+  // Save Resend API Key: POST /api/email-drip/save-key
+  router.post("/save-key", (req, res) => {
+    const { apiKey } = req.body;
+    if (setResendApiKey(apiKey)) {
+      res.json({ success: true, message: "API Key saved successfully!" });
+    } else {
+      res.status(400).json({ error: "Invalid Resend API Key format (must start with re_)" });
+    }
+  });
+
   // 1. Interactive Dashboard: /api/email-drip/dashboard
   router.get("/dashboard", async (req, res) => {
     try {
       const userCount = await prisma.user.count({ where: { email: { not: "" } } });
       const currentCampaign = getCurrentCampaign();
+      const currentKey = getResendApiKey();
+      const isKeyConfigured = Boolean(currentKey && currentKey.startsWith("re_"));
 
       const lessonsHtml = DRIP_LESSONS.map(l => `
         <div style="background:#151922; border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-          <div>
+          <div style="flex:1; min-width:280px;">
             <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
               <span style="background:rgba(37,99,235,0.2); color:#60a5fa; font-weight:800; font-size:11px; padding:3px 8px; border-radius:999px;">${l.badge}</span>
               <span style="color:#94a3b8; font-size:12px;">Scheduled Day ${l.day}</span>
@@ -29,9 +42,9 @@ export function getEmailDripRouter(prisma) {
             <p style="margin:0; font-size:13px; color:#94a3b8;">${l.summary}</p>
           </div>
           <div style="display:flex; gap:8px;">
-            <a href="/api/email-drip/preview/${l.id}" style="background:#2563eb; color:#ffffff; font-weight:700; font-size:13px; padding:10px 18px; border-radius:10px; text-decoration:none;">
+            <button onclick="sendPreview(${l.id})" style="background:#2563eb; color:#ffffff; font-weight:700; font-size:13px; padding:10px 18px; border-radius:10px; border:none; cursor:pointer;">
               📩 Send Preview to My Email
-            </a>
+            </button>
           </div>
         </div>
       `).join("");
@@ -55,13 +68,8 @@ export function getEmailDripRouter(prisma) {
       display: flex;
       justify-content: center;
     }
-    .container {
-      max-width: 760px;
-      width: 100%;
-    }
-    .header {
-      margin-bottom: 28px;
-    }
+    .container { max-width: 760px; width: 100%; }
+    .header { margin-bottom: 24px; }
     .badge {
       display: inline-flex;
       align-items: center;
@@ -85,16 +93,41 @@ export function getEmailDripRouter(prisma) {
     h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 8px; }
     p.subtitle { color: rgba(255,255,255,0.6); font-size: 14px; line-height: 1.5; }
     .status-card {
-      background: rgba(37,99,235,0.08);
-      border: 1px solid rgba(37,99,235,0.3);
+      background: #151922;
+      border: 1px solid rgba(255,255,255,0.1);
       border-radius: 16px;
-      padding: 18px 20px;
-      margin-bottom: 28px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .key-box {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    input {
+      flex: 1;
+      background: #0b0e14;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 10px;
+      color: #ffffff;
+      padding: 10px 14px;
+      font-size: 14px;
+      outline: none;
+    }
+    input:focus { border-color: #2563eb; }
+    button.save-btn {
+      background: #2563eb;
+      color: #ffffff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    #msg-box {
+      margin-top: 10px;
+      font-size: 13px;
+      display: none;
     }
   </style>
 </head>
@@ -111,19 +144,80 @@ export function getEmailDripRouter(prisma) {
       </p>
     </div>
 
+    <!-- API Key Configuration -->
     <div class="status-card">
-      <div>
-        <div style="font-size:12px; font-weight:700; color:#60a5fa; text-transform:uppercase;">Owner Approval Email</div>
-        <div style="font-size:15px; font-weight:700; color:#ffffff; margin-top:2px;">abhishekibef@gmail.com</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <span style="font-size:13px; font-weight:700; color:#e2e8f0; text-transform:uppercase; letter-spacing:0.04em;">
+          🔑 Resend API Key Status: ${isKeyConfigured ? '<span style="color:#4ade80;">Active (Configured) ✅</span>' : '<span style="color:#f87171;">Not Saved ⚠️</span>'}
+        </span>
+        <span style="font-size:12px; color:#94a3b8;">Owner: <b>abhishekibef@gmail.com</b></span>
       </div>
-      <a href="/api/email-drip/preview/1" style="background:#22c55e; color:#0b0e14; font-weight:800; font-size:13px; padding:10px 20px; border-radius:10px; text-decoration:none;">
-        ▶ Trigger Next Preview Now
-      </a>
+      
+      <div class="key-box">
+        <input type="password" id="apiKeyInput" placeholder="re_123456789... (Paste your Resend API Key here)" value="${isKeyConfigured ? currentKey : ''}" />
+        <button class="save-btn" onclick="saveApiKey()">Save Key</button>
+      </div>
+      <div id="msg-box"></div>
     </div>
 
     <h2 style="font-size:18px; font-weight:800; margin-bottom:16px;">The 6 App Feature Lessons</h2>
     ${lessonsHtml}
   </div>
+
+  <script>
+    async function saveApiKey() {
+      const apiKey = document.getElementById('apiKeyInput').value.trim();
+      const msgBox = document.getElementById('msg-box');
+      if (!apiKey) {
+        alert('Please enter your Resend API Key (starts with re_)');
+        return;
+      }
+      try {
+        const res = await fetch('/api/email-drip/save-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey })
+        });
+        const data = await res.json();
+        if (data.success) {
+          msgBox.style.color = '#4ade80';
+          msgBox.innerText = '✅ Resend API Key saved! You can now send previews and broadcasts.';
+          msgBox.style.display = 'block';
+          localStorage.setItem('moolzen_resend_key', apiKey);
+        } else {
+          msgBox.style.color = '#f87171';
+          msgBox.innerText = '❌ ' + (data.error || 'Failed to save');
+          msgBox.style.display = 'block';
+        }
+      } catch (err) {
+        msgBox.style.color = '#f87171';
+        msgBox.innerText = '❌ Error: ' + err.message;
+        msgBox.style.display = 'block';
+      }
+    }
+
+    // Auto-restore saved key from local storage if available
+    window.addEventListener('DOMContentLoaded', () => {
+      const saved = localStorage.getItem('moolzen_resend_key');
+      const input = document.getElementById('apiKeyInput');
+      if (saved && !input.value) {
+        input.value = saved;
+        saveApiKey();
+      }
+    });
+
+    async function sendPreview(lessonId) {
+      const apiKey = document.getElementById('apiKeyInput').value.trim();
+      if (apiKey) {
+        await fetch('/api/email-drip/save-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey })
+        });
+      }
+      window.location.href = '/api/email-drip/preview/' + lessonId + (apiKey ? '?apiKey=' + encodeURIComponent(apiKey) : '');
+    }
+  </script>
 </body>
 </html>
       `);
@@ -135,6 +229,9 @@ export function getEmailDripRouter(prisma) {
   // 2. Trigger Preview on Demand: /api/email-drip/preview/:id?
   router.get("/preview/:id?", async (req, res) => {
     const lessonId = req.params.id || 1;
+    if (req.query.apiKey) {
+      setResendApiKey(req.query.apiKey);
+    }
     try {
       const result = await sendPreviewToOwner(lessonId, prisma);
       if (result.success) {

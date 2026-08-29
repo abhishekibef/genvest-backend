@@ -1,6 +1,7 @@
-﻿import crypto from "crypto";
+import crypto from "crypto";
 import { Resend } from "resend";
 import { DRIP_LESSONS } from "./emailDripTemplates.js";
+import { getResendApiKey } from "./resendConfig.js";
 
 const OWNER_EMAIL = "abhishekibef@gmail.com";
 const FROM_EMAIL = "Moolzen <team@moolzen.com>";
@@ -100,16 +101,31 @@ export async function sendPreviewToOwner(lessonId, prisma) {
   `;
 
   // Send preview to owner
-  const resend = new Resend(process.env.RESEND_API_KEY || "re_fallback");
+  const apiKey = getResendApiKey();
+  if (!apiKey) {
+    return {
+      success: false,
+      error: "Resend API Key is not set. Please enter and save your API Key at https://api.moolzen.com/api/email-drip/dashboard",
+      lesson
+    };
+  }
+
+  const resend = new Resend(apiKey);
   try {
-    const result = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: FROM_EMAIL,
       to: OWNER_EMAIL,
       subject: `[APPROVAL REQUIRED] ${lesson.tag}: ${lesson.subject}`,
       html: previewWrapperHtml
     });
+
+    if (error) {
+      console.error(`❌ Resend returned error for drip preview:`, error);
+      return { success: false, error: error.message || JSON.stringify(error), lesson };
+    }
+
     console.log(`✅ Sent Drip Preview for Lesson ${lesson.id} to owner ${OWNER_EMAIL}`);
-    return { success: true, result, lesson };
+    return { success: true, data, lesson };
   } catch (err) {
     console.error(`❌ Failed to send drip preview:`, err);
     return { success: false, error: err.message, lesson };
@@ -118,7 +134,11 @@ export async function sendPreviewToOwner(lessonId, prisma) {
 
 export async function executeDripBroadcast(lessonId, prisma) {
   const lesson = DRIP_LESSONS.find(l => l.id === Number(lessonId)) || DRIP_LESSONS[0];
-  const resend = new Resend(process.env.RESEND_API_KEY || "re_fallback");
+  const apiKey = getResendApiKey();
+  if (!apiKey) {
+    throw new Error("Resend API Key is not set.");
+  }
+  const resend = new Resend(apiKey);
 
   const users = await prisma.user.findMany({
     where: { email: { not: "" } },
@@ -130,13 +150,14 @@ export async function executeDripBroadcast(lessonId, prisma) {
 
   for (const user of users) {
     try {
-      await resend.emails.send({
+      const { data, error } = await resend.emails.send({
         from: FROM_EMAIL,
         to: user.email,
         subject: lesson.subject,
         html: lesson.htmlContent
       });
-      sent++;
+      if (!error) sent++;
+      else failed++;
     } catch (err) {
       failed++;
     }
