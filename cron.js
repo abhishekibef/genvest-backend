@@ -468,6 +468,7 @@ export const runWeeklyContestFinalization = async () => {
 };
 
 import { runMarketClosePushNotifications } from './marketCloseCron.js';
+import { sendPreviewToOwner, getCurrentCampaign } from './emailDripCron.js';
 
 export const initCronJobs = () => {
   // Run Daily at 3:30 PM IST (market close)
@@ -510,5 +511,13 @@ export const initCronJobs = () => {
     runWeeklyContestFinalization();
   });
 
-  console.log('⏳ Gamification Cron Jobs initialized.');
+  // Automated Educational Email Drip Preview — Every 2 days at 10:00 AM IST (4:30 AM UTC)
+  // Sends preview to owner (abhishekibef@gmail.com) for 1-click approval
+  cron.schedule('30 4 */2 * *', () => {
+    console.log('📧 Running Automated Email Drip Preview check...');
+    const campaign = getCurrentCampaign();
+    sendPreviewToOwner(campaign.lessonId || 1, prisma);
+  });
+
+  console.log('⏳ Gamification & Email Drip Cron Jobs initialized.');
 };

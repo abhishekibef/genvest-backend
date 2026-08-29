@@ -35,6 +35,7 @@ async function start() {
   const { getAiRouter } = await import('./routes/ai.js');
   const { getPaymentRouter } = await import('./routes/payment.js');
   const { getNotificationsRouter } = await import('./routes/notifications.js');
+  const { getEmailDripRouter } = await import('./routes/emailDrip.js');
   const { runSimulationMiddleware } = await import('./simulation.js');
   const { initCronJobs } = await import('./cron.js');
 
@@ -60,6 +61,7 @@ async function start() {
   app.use('/api/ai', getAiRouter());
   app.use('/api/payment', getPaymentRouter(prisma));
   app.use('/api/notifications', getNotificationsRouter(prisma));
+  app.use('/api/email-drip', getEmailDripRouter(prisma));
 
   app.get('/api/test-push', async (req, res) => {
     try {
