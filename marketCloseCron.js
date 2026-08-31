@@ -130,6 +130,9 @@ Use 1-2 emojis. Conversational tone. No hashtags.`;
       } catch (err) {
         log(`Error for ${user.email}: ${err.message}`);
       }
+
+      // Add a 12-second delay between users to respect the Gemini API free-tier rate limit (5 RPM)
+      await new Promise((resolve) => setTimeout(resolve, 12000));
     }
 
     log(`Done. Processed ${users.length} users.`);
