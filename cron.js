@@ -57,47 +57,35 @@ export const runDailyTournamentReset = async () => {
 };
 
 export const runWeeklyLeaguePromotions = async () => {
-  console.log('🏆 Running Weekly League Promotions...');
+  console.log('🏆 Running Weekly League Promotions (XP-Based)...');
   try {
-    const leagues = ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'DIAMOND'];
-    
-    for (let i = 0; i < leagues.length - 1; i++) {
-      const currentLeague = leagues[i];
-      const nextLeague = leagues[i + 1];
+    const users = await prisma.user.findMany({
+      select: { id: true, username: true, totalXP: true, league: true }
+    });
 
-      // Find users in this league sorted by cash descending (or XP)
-      const usersInLeague = await prisma.user.findMany({
-        where: { league: currentLeague },
-        orderBy: { cash: 'desc' }
-      });
+    const calculateLeague = (xp) => {
+      if (xp >= 1000) return 'DIAMOND';
+      if (xp >= 500) return 'PLATINUM';
+      if (xp >= 250) return 'GOLD';
+      if (xp >= 100) return 'SILVER';
+      return 'BRONZE';
+    };
 
-      if (usersInLeague.length > 0) {
-        const top20PercentCount = Math.ceil(usersInLeague.length * 0.20);
-        const toPromote = usersInLeague.slice(0, top20PercentCount);
-
-        for (const user of toPromote) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { 
-              league: nextLeague,
-              highestLeague: nextLeague 
-            }
-          });
-
-          await prisma.socialFeed.create({
-            data: {
-              userId: user.id,
-              username: user.username || 'Trader',
-              type: 'PROMOTION',
-              message: `🚀 Promoted to ${nextLeague} League!`
-            }
-          });
-          console.log(`Promoted ${user.username} to ${nextLeague}`);
-        }
+    for (const user of users) {
+      const properLeague = calculateLeague(user.totalXP || 0);
+      if (user.league !== properLeague) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            league: properLeague,
+            highestLeague: properLeague
+          }
+        });
       }
     }
+    console.log(`✅ Synced XP leagues for ${users.length} users.`);
   } catch (error) {
-    console.error('❌ Weekly promotion error:', error);
+    console.error('❌ Weekly League Promotion error:', error);
   }
 };
 

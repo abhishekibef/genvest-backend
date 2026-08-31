@@ -13,6 +13,14 @@ function calculateTier(roi) {
   return 'C';
 }
 
+function calculateLearningLeague(totalXP) {
+  if (totalXP >= 1000) return 'DIAMOND';
+  if (totalXP >= 500) return 'PLATINUM';
+  if (totalXP >= 250) return 'GOLD';
+  if (totalXP >= 100) return 'SILVER';
+  return 'BRONZE';
+}
+
 const TIER_CONFIG = {
   A: { label: 'Tier A (Elite)', icon: '👑', color: '#FFD700' },
   B: { label: 'Tier B (Solid)', icon: '⭐', color: '#3B82F6' },
@@ -164,28 +172,37 @@ export function getLeaderboardRouter(prisma) {
       const userROI = (userProfitLoss / INITIAL_CAPITAL) * 100;
       const userTier = calculateTier(userROI);
 
-      // ── 7. Learning Leaderboard (unchanged logic) ─────────────────────────
+      // ── 7. Learning Leaderboard (Active Learners Only) ───────────────────
       const allUsersForLearning = await prisma.user.findMany({
         include: { lessons: true }
       });
 
-      const learningLeaderboard = allUsersForLearning
-        .map(u => ({
-          id: `user-${u.id}`,
-          username: u.id === Number(userId)
-            ? `${u.username || u.email.split('@')[0]} (You)`
-            : (u.username || u.email.split('@')[0]),
-          avatar: u.id % 2 === 0 ? '#6366F1' : '#10B981',
-          totalXP: u.totalXP || 0,
-          streak: u.streak || 1,
-          completedCount: u.lessons.length,
-          isUser: u.id === Number(userId),
-          league: u.league || 'BRONZE',
-        }))
-        .sort((a, b) => b.totalXP - a.totalXP)
+      const activeLearners = allUsersForLearning
+        .map(u => {
+          const totalXP = u.totalXP || 0;
+          return {
+            id: `user-${u.id}`,
+            userId: u.id,
+            username: u.id === Number(userId)
+              ? `${u.username || u.email.split('@')[0]} (You)`
+              : (u.username || u.email.split('@')[0]),
+            avatar: u.id % 2 === 0 ? '#6366F1' : '#10B981',
+            totalXP,
+            streak: u.streak || 1,
+            completedCount: u.lessons.length,
+            isUser: u.id === Number(userId),
+            league: calculateLearningLeague(totalXP),
+          };
+        })
+        .filter(u => u.totalXP > 0 || u.completedCount > 0)
+        .sort((a, b) => {
+          if (b.totalXP !== a.totalXP) return b.totalXP - a.totalXP;
+          return b.completedCount - a.completedCount;
+        })
         .map((e, i) => ({ ...e, rank: i + 1 }));
 
-      const userLearningRankInfo = learningLeaderboard.find(e => e.isUser);
+      const userLearningRankInfo = activeLearners.find(e => e.isUser);
+      const userXP = user.totalXP || 0;
 
       // ── 8. Respond ────────────────────────────────────────────────────────
       res.status(200).json({
@@ -199,14 +216,16 @@ export function getLeaderboardRouter(prisma) {
         userNetWorth: Math.round(userNetWorth * 100) / 100,
         totalUsers: allTradingEntries.length,
 
-        // Learning (unchanged)
-        userXP: user.totalXP || 0,
+        // Learning
+        userXP,
+        userLeague: calculateLearningLeague(userXP),
         userLearningRank: userLearningRankInfo?.rank ?? null,
         completedLessonsCount: user.lessons.length,
+        totalActiveLearners: activeLearners.length,
 
         // Lists
         tradingLeaderboard,
-        learningLeaderboard,
+        learningLeaderboard: activeLearners,
 
         // Meta
         view,
