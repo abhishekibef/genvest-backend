@@ -103,7 +103,7 @@ Sentence 2: Give ONE reason WHY the market moved today based on the news.
 Use 1-2 emojis. Conversational tone. No hashtags.`;
 
       try {
-        const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
         const result = await model.generateContent(prompt);
         const body = result.response.text().trim();
         log(`AI for ${user.email}: ${body}`);
