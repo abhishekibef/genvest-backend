@@ -51,10 +51,14 @@ export function getLeaderboardRouter(prisma) {
         allTradingEntries = cached.data;
       }
 
-      // ── 2. Fetch current user (always fresh) ──────────────────────────────
+      // ── 2. Get current user's profile ────────────────────────────────────
       const user = await prisma.user.findUnique({
         where: { id: Number(userId) },
-        include: { holdings: { include: { stock: true } }, lessons: true }
+        include: {
+          holdings: { include: { stock: true } },
+          transactions: { select: { id: true } },
+          lessons: true,
+        }
       });
 
       if (!user) return res.status(404).json({ error: 'User not found!' });
@@ -67,7 +71,10 @@ export function getLeaderboardRouter(prisma) {
       // ── 4. Build trading entries if not cached ────────────────────────────
       if (!allTradingEntries) {
         const users = await prisma.user.findMany({
-          include: { holdings: { include: { stock: true } } }
+          include: {
+            holdings: { include: { stock: true } },
+            transactions: { select: { id: true } },
+          }
         });
 
         // Get historical snapshots for timeframe-based ROI
@@ -90,39 +97,47 @@ export function getLeaderboardRouter(prisma) {
           });
         }
 
-        const entries = users.map(u => {
-          const displayName = u.username || u.email.split('@')[0];
-          let holdingsValue = 0;
-          u.holdings.forEach(h => {
-            holdingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice);
-          });
-          const netWorth = u.cash + holdingsValue;
+        const entries = users
+          .map(u => {
+            const displayName = u.username || u.email.split('@')[0];
+            let holdingsValue = 0;
+            u.holdings.forEach(h => {
+              holdingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice);
+            });
+            const netWorth = u.cash + holdingsValue;
 
-          // Determine base for ROI calculation
-          let baseCapital = INITIAL_CAPITAL;
-          if (timeframe !== 'alltime' && snapshotMap[u.id]) {
-            baseCapital = snapshotMap[u.id];
-          }
+            // Determine base for ROI calculation
+            let baseCapital = INITIAL_CAPITAL;
+            if (timeframe !== 'alltime' && snapshotMap[u.id]) {
+              baseCapital = snapshotMap[u.id];
+            }
 
-          const profitLoss = netWorth - baseCapital;
-          const roi = (profitLoss / baseCapital) * 100;
-          const tier = calculateTier(roi);
+            const profitLoss = netWorth - baseCapital;
+            const roi = (profitLoss / baseCapital) * 100;
+            const tier = calculateTier(roi);
+            const tradesCount = u.transactions.length;
+            const hasHoldings = u.holdings.length > 0;
+            const hasTraded = tradesCount > 0 || hasHoldings || Math.abs(profitLoss) > 0.01;
 
-          return {
-            id: `user-${u.id}`,
-            userId: u.id,
-            username: displayName,
-            avatar: u.id % 2 === 0 ? '#6366F1' : '#10B981',
-            streak: u.streak || 1,
-            league: u.league || 'BRONZE', // kept for Learning tab
-            roi: Math.round(roi * 100) / 100,
-            profitLoss: Math.round(profitLoss * 100) / 100,
-            netWorth: Math.round(netWorth * 100) / 100,
-            tier,
-            tierConfig: TIER_CONFIG[tier],
-            createdAt: u.createdAt,
-          };
-        });
+            return {
+              id: `user-${u.id}`,
+              userId: u.id,
+              username: displayName,
+              avatar: u.id % 2 === 0 ? '#6366F1' : '#10B981',
+              streak: u.streak || 1,
+              league: u.league || 'BRONZE',
+              roi: Math.round(roi * 100) / 100,
+              profitLoss: Math.round(profitLoss * 100) / 100,
+              netWorth: Math.round(netWorth * 100) / 100,
+              tier,
+              tierConfig: TIER_CONFIG[tier],
+              createdAt: u.createdAt,
+              tradesCount,
+              hasTraded,
+            };
+          })
+          // Active Traders Only: Exclude accounts with 0 trades and 0 holdings
+          .filter(e => e.hasTraded);
 
         // Sort: ROI DESC → profitLoss DESC → createdAt ASC (older account wins tie)
         entries.sort((a, b) => {
@@ -214,6 +229,8 @@ export function getLeaderboardRouter(prisma) {
         userROI: Math.round(userROI * 100) / 100,
         userProfitLoss: Math.round(userProfitLoss * 100) / 100,
         userNetWorth: Math.round(userNetWorth * 100) / 100,
+        userTradesCount: user.transactions?.length || 0,
+        isUnranked: !userEntry,
         totalUsers: allTradingEntries.length,
 
         // Learning
