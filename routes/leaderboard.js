@@ -41,8 +41,8 @@ export function getLeaderboardRouter(prisma) {
     const timeframe = req.query.timeframe || 'alltime'; // alltime | 7d | 30d
 
     try {
-      // ── 1. Check cache (skip for user-specific data) ─────────────────────
-      const cacheKey = `${view}:${timeframe}`;
+      // ── 1. Check cache (1-minute TTL) ───────────────────────────────────
+      const cacheKey = `trading:${timeframe}:v2`;
       const cached = leaderboardCache.get(cacheKey);
       const now = Date.now();
       let allTradingEntries = null;
@@ -158,8 +158,8 @@ export function getLeaderboardRouter(prisma) {
 
         allTradingEntries = entries;
 
-        // Store in cache for 5 minutes
-        leaderboardCache.set(cacheKey, { data: entries, expiresAt: now + 5 * 60 * 1000 });
+        // Store in cache for 60 seconds
+        leaderboardCache.set(cacheKey, { data: entries, expiresAt: now + 60 * 1000 });
       }
 
       // ── 5. Filter by view ─────────────────────────────────────────────────
