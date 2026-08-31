@@ -215,8 +215,8 @@ export const invalidateLeaderboardCache = () => {
 // TIER CALCULATION HELPER
 // ============================================================
 function calculateTier(roi) {
-  if (roi >= 20) return 'A';
-  if (roi >= -5) return 'B';
+  if (roi >= 15) return 'A';
+  if (roi > 0) return 'B';
   return 'C';
 }
 

@@ -8,8 +8,8 @@ import { leaderboardCache, invalidateLeaderboardCache } from '../cron.js';
 const INITIAL_CAPITAL = 1000000; // ₹10,00,000
 
 function calculateTier(roi) {
-  if (roi >= 20) return 'A';
-  if (roi >= -5) return 'B';
+  if (roi >= 15) return 'A';
+  if (roi > 0) return 'B';
   return 'C';
 }
 
