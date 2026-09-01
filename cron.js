@@ -456,18 +456,24 @@ export const runWeeklyContestFinalization = async () => {
 };
 
 import { runMarketClosePushNotifications } from './marketCloseCron.js';
+import { runMorningPreMarketPushNotifications } from './morningPreMarketCron.js';
 import { sendPreviewToOwner, getCurrentCampaign } from './emailDripCron.js';
 
 export const initCronJobs = () => {
+  // Send Morning Pre-Market AI Push Notifications at 8:50 AM IST (Monday to Friday)
+  cron.schedule('50 8 * * 1-5', () => {
+    runMorningPreMarketPushNotifications();
+  }, { timezone: 'Asia/Kolkata' });
+
   // Run Daily at 3:30 PM IST (market close)
   cron.schedule('30 15 * * *', () => {
     runDailyTournamentReset();
-  });
+  }, { timezone: 'Asia/Kolkata' });
   
-  // Send Post-Market AI Push Notifications at 3:35 PM IST (10:05 AM UTC)
-  cron.schedule('05 10 * * *', () => {
+  // Send Post-Market AI Push Notifications at 3:35 PM IST
+  cron.schedule('35 15 * * 1-5', () => {
     runMarketClosePushNotifications();
-  });
+  }, { timezone: 'Asia/Kolkata' });
 
   // Run Weekly on Fridays at 3:35 PM IST (old Diamond/Silver league system)
   cron.schedule('35 15 * * 5', () => {

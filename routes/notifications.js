@@ -3,6 +3,17 @@ import express from "express";
 export function getNotificationsRouter(prisma) {
   const router = express.Router();
 
+  // POST /api/notifications/trigger-morning-push — manual trigger for testing / admin
+  router.post("/trigger-morning-push", async (req, res) => {
+    try {
+      const { runMorningPreMarketPushNotifications } = await import("../morningPreMarketCron.js");
+      const result = await runMorningPreMarketPushNotifications();
+      res.json({ success: true, result });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to run morning push", details: err.message });
+    }
+  });
+
   // GET /api/notifications/unread-count/:userId — for the bell badge
   // IMPORTANT: must be registered BEFORE the wildcard /:userId route
   router.get("/unread-count/:userId", async (req, res) => {
