@@ -39,18 +39,18 @@ async function fetchMorningMarketNews() {
   return "GIFT Nifty and Asian markets indicate an active trading day ahead.";
 }
 
-export const runMorningPreMarketPushNotifications = async () => {
+export const runMorningPreMarketPushNotifications = async (forceSend = false) => {
   let logs = [];
   const log = (msg) => { console.log(msg); logs.push(msg); };
 
-  log("🌅 [8:50 AM IST] Starting Morning Pre-Market Push Notifications...");
+  log("🌅 Starting Morning Market Push & In-App Notification Broadcast...");
 
   try {
+    // Find all registered users so in-app bell notification is delivered to everyone
     const users = await prisma.user.findMany({
-      where: { fcmToken: { not: null } },
       include: { holdings: { include: { stock: true } } },
     });
-    log(`Found ${users.length} users with active FCM device tokens.`);
+    log(`Found ${users.length} total users in Moolzen database.`);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -59,12 +59,11 @@ export const runMorningPreMarketPushNotifications = async () => {
     log(`Morning Market Cues: ${marketNews.substring(0, 90)}...`);
 
     // Generate a punchy AI Morning Trading Brief
-    let globalBrief = "Markets open in 25 mins! Check today's key levels for NIFTY 50 & top stocks before the opening bell ⚡";
+    let globalBrief = "Markets are buzzing! Check today's key levels for NIFTY 50 & top momentum stocks. Place your virtual trades now ⚡";
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
       const prompt = `You are a sharp, energetic Gen-Z market coach for Moolzen (a stock market learning & virtual trading app).
-The Indian stock market opens in 25 minutes (at 9:15 AM IST).
-Morning News Headlines: ${marketNews}
+Today's Indian Market News Headlines: ${marketNews}
 
 Write a morning pre-market push notification body (1-2 crisp sentences, max 25 words total).
 Energize the user to check the opening setup and place virtual trades.
@@ -80,25 +79,30 @@ Use 1-2 trading emojis (📈, ⚡, 🚀, 🔔). No hashtags.`;
       log(`AI brief generation fallback: ${err.message}`);
     }
 
-    const title = "🔔 Market Opens in 25 Mins! 📈";
+    const title = "🔔 Market Alert: Today's Trading Setup 📈";
+    let sentPushCount = 0;
+    let createdInAppCount = 0;
 
     for (const user of users) {
-      // Avoid duplicate morning notifications today
-      const existingNotif = await prisma.notification.findFirst({
-        where: {
-          userId: user.id,
-          title,
-          createdAt: { gte: today },
-        },
-      });
+      if (!forceSend) {
+        // Avoid duplicate morning notifications today
+        const existingNotif = await prisma.notification.findFirst({
+          where: {
+            userId: user.id,
+            title,
+            createdAt: { gte: today },
+          },
+        });
 
-      if (existingNotif) {
-        log(`Skipping ${user.email} — morning push already sent today.`);
-        continue;
+        if (existingNotif) {
+          log(`Skipping ${user.email} — already received morning notification today.`);
+          continue;
+        }
       }
 
       const body = globalBrief;
 
+      // 1. Send native mobile push if FCM token exists
       if (messaging && user.fcmToken) {
         try {
           await messaging.send({
@@ -107,13 +111,14 @@ Use 1-2 trading emojis (📈, ⚡, 🚀, 🔔). No hashtags.`;
             android: { notification: { sound: "default", priority: "high" } },
             data: { route: "/trade" },
           });
+          sentPushCount++;
           log(`📲 Push notification delivered to ${user.email}`);
         } catch (fcmErr) {
-          log(`FCM send failed for ${user.email}: ${fcmErr.message}`);
+          log(`FCM send skipped for ${user.email}: ${fcmErr.message}`);
         }
       }
 
-      // Save notification to DB for in-app bell badge & notifications page
+      // 2. Save notification to DB for in-app bell badge & notification inbox
       await prisma.notification.create({
         data: {
           userId: user.id,
@@ -122,12 +127,11 @@ Use 1-2 trading emojis (📈, ⚡, 🚀, 🔔). No hashtags.`;
           route: "/trade",
         },
       });
-
-      log(`💾 Saved in-app morning notification for ${user.email}`);
+      createdInAppCount++;
     }
 
-    log(`✅ [8:50 AM IST] Morning Pre-Market notifications completed for ${users.length} users.`);
-    return { success: true, logs, totalUsers: users.length };
+    log(`✅ Broadcast complete: ${sentPushCount} mobile push alerts delivered, ${createdInAppCount} in-app notifications created.`);
+    return { success: true, logs, totalUsers: users.length, sentPushCount, createdInAppCount };
   } catch (error) {
     log(`❌ CRITICAL Morning Push Error: ${error.message}`);
     return { success: false, logs, error: error.message };
