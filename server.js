@@ -759,13 +759,26 @@ async function start() {
 
   app.post('/api/users/fcm-token', async (req, res) => {
     try {
-      const { email, token } = req.body;
-      if (!email || !token) return res.status(400).json({ error: 'Missing email or token' });
-      await prisma.user.update({
-        where: { email },
-        data: { fcmToken: token }
-      });
-      res.json({ success: true });
+      const { email, userId, token } = req.body;
+      if (!token) return res.status(400).json({ error: 'Missing device token' });
+
+      if (userId) {
+        await prisma.user.update({
+          where: { id: Number(userId) },
+          data: { fcmToken: token }
+        });
+        return res.json({ success: true });
+      }
+
+      if (email) {
+        await prisma.user.updateMany({
+          where: { email },
+          data: { fcmToken: token }
+        });
+        return res.json({ success: true });
+      }
+
+      return res.status(400).json({ error: 'Missing userId or email' });
     } catch (error) {
       console.error('Error saving FCM token:', error);
       res.status(500).json({ error: 'Failed to save token' });
