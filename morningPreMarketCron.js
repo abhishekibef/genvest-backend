@@ -13,6 +13,9 @@ const NEWS_RSS_FEEDS = [
   "https://www.business-standard.com/rss/markets-106.rss",
 ];
 
+// Helper delay
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function fetchMorningMarketNews() {
   for (const url of NEWS_RSS_FEEDS) {
     try {
@@ -39,18 +42,39 @@ async function fetchMorningMarketNews() {
   return "GIFT Nifty and Asian markets indicate an active trading day ahead.";
 }
 
+// Send FCM with 1 automatic retry on temporary network failure
+async function sendFCMWithRetry(fcmToken, title, body, maxRetries = 2) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await messaging.send({
+        token: fcmToken,
+        notification: { title, body },
+        android: { notification: { sound: "default", priority: "high" } },
+        data: { route: "/trade" },
+      });
+      return { success: true };
+    } catch (err) {
+      if (attempt < maxRetries) {
+        // Wait 2 seconds before retry
+        await sleep(2000);
+      } else {
+        return { success: false, error: err.message };
+      }
+    }
+  }
+}
+
 export const runMorningPreMarketPushNotifications = async (forceSend = false) => {
   let logs = [];
   const log = (msg) => { console.log(msg); logs.push(msg); };
 
-  log("🌅 Starting Morning Market Push & In-App Notification Broadcast...");
+  log("🌅 Starting Morning Market Push Broadcast (with Rate-Limiting & Batching)...");
 
   try {
-    // Find all registered users so in-app bell notification is delivered to everyone
     const users = await prisma.user.findMany({
       include: { holdings: { include: { stock: true } } },
     });
-    log(`Found ${users.length} total users in Moolzen database.`);
+    log(`Found ${users.length} total users in database.`);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -83,51 +107,69 @@ Use 1-2 trading emojis (📈, ⚡, 🚀, 🔔). No hashtags.`;
     let sentPushCount = 0;
     let createdInAppCount = 0;
 
-    for (const user of users) {
-      if (!forceSend) {
-        // Avoid duplicate morning notifications today
-        const existingNotif = await prisma.notification.findFirst({
-          where: {
-            userId: user.id,
-            title,
-            createdAt: { gte: today },
-          },
-        });
+    // Batch Configuration: Process in chunks of 20 with small pacing delays to prevent throttling
+    const BATCH_SIZE = 20;
+    const BATCH_PAUSE_MS = 1500; // 1.5 seconds pause between batches
+    const USER_DELAY_MS = 50;     // 50ms delay between individual notifications
 
-        if (existingNotif) {
-          log(`Skipping ${user.email} — already received morning notification today.`);
-          continue;
-        }
-      }
+    for (let i = 0; i < users.length; i += BATCH_SIZE) {
+      const batch = users.slice(i, i + BATCH_SIZE);
+      log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1} (${batch.length} users)...`);
 
-      const body = globalBrief;
-
-      // 1. Send native mobile push if FCM token exists
-      if (messaging && user.fcmToken) {
+      for (const user of batch) {
         try {
-          await messaging.send({
-            token: user.fcmToken,
-            notification: { title, body },
-            android: { notification: { sound: "default", priority: "high" } },
-            data: { route: "/trade" },
+          if (!forceSend) {
+            // Avoid duplicate notifications today
+            const existingNotif = await prisma.notification.findFirst({
+              where: {
+                userId: user.id,
+                title,
+                createdAt: { gte: today },
+              },
+            });
+
+            if (existingNotif) {
+              log(`Skipping ${user.email} — already received today.`);
+              continue;
+            }
+          }
+
+          const body = globalBrief;
+
+          // 1. Send native mobile push if FCM token exists with retry
+          if (messaging && user.fcmToken) {
+            const pushRes = await sendFCMWithRetry(user.fcmToken, title, body);
+            if (pushRes.success) {
+              sentPushCount++;
+              log(`📲 Push notification delivered to ${user.email}`);
+            } else {
+              log(`FCM send skipped for ${user.email}: ${pushRes.error}`);
+            }
+          }
+
+          // 2. Save in-app notification in DB
+          await prisma.notification.create({
+            data: {
+              userId: user.id,
+              title,
+              body,
+              route: "/trade",
+            },
           });
-          sentPushCount++;
-          log(`📲 Push notification delivered to ${user.email}`);
-        } catch (fcmErr) {
-          log(`FCM send skipped for ${user.email}: ${fcmErr.message}`);
+          createdInAppCount++;
+
+          // Small inter-user delay
+          await sleep(USER_DELAY_MS);
+        } catch (userErr) {
+          log(`Error processing user ${user.email}: ${userErr.message}`);
         }
       }
 
-      // 2. Save notification to DB for in-app bell badge & notification inbox
-      await prisma.notification.create({
-        data: {
-          userId: user.id,
-          title,
-          body,
-          route: "/trade",
-        },
-      });
-      createdInAppCount++;
+      // If more batches remain, pause a few seconds to respect network rate limits
+      if (i + BATCH_SIZE < users.length) {
+        log(`⏳ Pausing ${BATCH_PAUSE_MS / 1000}s before next batch to prevent network throttling...`);
+        await sleep(BATCH_PAUSE_MS);
+      }
     }
 
     log(`✅ Broadcast complete: ${sentPushCount} mobile push alerts delivered, ${createdInAppCount} in-app notifications created.`);
