@@ -239,13 +239,13 @@ export function getAuthRouter(prisma) {
         const msDiff = now - lastActive;
         const hourDiff = msDiff / (1000 * 60 * 60);
 
-        let newStreak = user.streak;
+        let newStreak = user.streak || 0;
         if (hourDiff > 20 && hourDiff <= 48) {
           // Logged in the next calendar day, increment streak!
-          newStreak += 1;
+          newStreak = Math.max(1, (user.streak || 0) + 1);
         } else if (hourDiff > 48) {
-          // Lost the streak! Resets to 1
-          newStreak = 1;
+          // Lost the streak! Resets to 0
+          newStreak = 0;
         }
 
         user = await prisma.user.update({
@@ -419,11 +419,11 @@ export function getAuthRouter(prisma) {
         const msDiff = now - lastActive;
         const hourDiff = msDiff / (1000 * 60 * 60);
 
-        let newStreak = user.streak;
+        let newStreak = user.streak || 0;
         if (hourDiff > 20 && hourDiff <= 48) {
-          newStreak += 1;
+          newStreak = Math.max(1, (user.streak || 0) + 1);
         } else if (hourDiff > 48) {
-          newStreak = 1;
+          newStreak = 0;
         }
 
         const updateData = {
@@ -730,11 +730,11 @@ export function getAuthRouter(prisma) {
         const msDiff = now - lastActive;
         const hourDiff = msDiff / (1000 * 60 * 60);
 
-        let newStreak = user.streak;
+        let newStreak = user.streak || 0;
         if (hourDiff > 20 && hourDiff <= 48) {
-          newStreak += 1;
+          newStreak = Math.max(1, (user.streak || 0) + 1);
         } else if (hourDiff > 48) {
-          newStreak = 1;
+          newStreak = 0;
         }
 
         const updatedUser = await prisma.user.update({
