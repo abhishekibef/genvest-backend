@@ -6,10 +6,14 @@ export function getPortfolioRouter(prisma) {
   // Fetch portfolio stats, holdings, and sector allocations
   router.get('/:userId', async (req, res) => {
     const { userId } = req.params;
+    const numericUserId = Number(userId);
+    if (!userId || isNaN(numericUserId)) {
+      return res.status(400).json({ error: 'Valid numeric userId is required!' });
+    }
 
     try {
       const user = await prisma.user.findUnique({
-        where: { id: Number(userId) },
+        where: { id: numericUserId },
         include: {
           holdings: {
             include: { stock: true }
