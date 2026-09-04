@@ -632,28 +632,28 @@ async function start() {
   <script>
     function applyUpdatePreset() {
       document.getElementById('subject').value = 'Update Moolzen: All-New AI Market Analysis & Faster UI is Live!';
-      document.getElementById('html').value = `
-<div style="font-family: Arial, sans-serif; background-color: #0b0e14; color: #ffffff; padding: 32px; border-radius: 16px; max-width: 600px; margin: 0 auto;">
-  <h2 style="color: #60a5fa; margin-bottom: 12px;">New Moolzen Update is Live on Google Play!</h2>
-  <p style="font-size: 15px; color: #cbd5e1; line-height: 1.6;">
-    Hey Trader,<br><br>
-    We have just released a major update (v1.0.8) packed with powerful new features to supercharge your trading journey:
-  </p>
-  <ul style="color: #cbd5e1; font-size: 14px; line-height: 1.8; margin: 16px 0 24px 20px;">
-    <li><b>Daily AI Market Analysis:</b> Personalized portfolio breakdown every day at 3:35 PM right as the Indian market closes.</li>
-    <li><b>Smart Notification Center:</b> Instant alerts for top market movers and weekly contests.</li>
-    <li><b>Faster Live Charts:</b> Smoother practice trade execution and real-time quotes.</li>
-  </ul>
-  <div style="text-align: center; margin: 32px 0;">
-    <a href="https://play.google.com/store/apps/details?id=com.moolzen.app" style="background-color: #2563eb; color: #ffffff; font-weight: bold; padding: 14px 28px; border-radius: 12px; text-decoration: none; display: inline-block;">
-      Update on Google Play ➔
-    </a>
-  </div>
-  <p style="font-size: 13px; color: #64748b; text-align: center;">
-    Happy Trading,<br><b>Team Moolzen</b>
-  </p>
-</div>
-`.trim();
+      document.getElementById('html').value = [
+        '<div style="font-family: Arial, sans-serif; background-color: #0b0e14; color: #ffffff; padding: 32px; border-radius: 16px; max-width: 600px; margin: 0 auto;">',
+        '  <h2 style="color: #60a5fa; margin-bottom: 12px;">New Moolzen Update is Live on Google Play!</h2>',
+        '  <p style="font-size: 15px; color: #cbd5e1; line-height: 1.6;">',
+        '    Hey Trader,<br><br>',
+        '    We have just released a major update (v1.0.8) packed with powerful new features to supercharge your trading journey:',
+        '  </p>',
+        '  <ul style="color: #cbd5e1; font-size: 14px; line-height: 1.8; margin: 16px 0 24px 20px;">',
+        '    <li><b>Daily AI Market Analysis:</b> Personalized portfolio breakdown every day at 3:35 PM right as the Indian market closes.</li>',
+        '    <li><b>Smart Notification Center:</b> Instant alerts for top market movers and weekly contests.</li>',
+        '    <li><b>Faster Live Charts:</b> Smoother practice trade execution and real-time quotes.</li>',
+        '  </ul>',
+        '  <div style="text-align: center; margin: 32px 0;">',
+        '    <a href="https://play.google.com/store/apps/details?id=com.moolzen.app" style="background-color: #2563eb; color: #ffffff; font-weight: bold; padding: 14px 28px; border-radius: 12px; text-decoration: none; display: inline-block;">',
+        '      Update on Google Play ➔',
+        '    </a>',
+        '  </div>',
+        '  <p style="font-size: 13px; color: #64748b; text-align: center;">',
+        '    Happy Trading,<br><b>Team Moolzen</b>',
+        '  </p>',
+        '</div>'
+      ].join('\\n');
     }
 
     function applyWelcomePreset() {
