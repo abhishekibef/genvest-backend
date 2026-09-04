@@ -91,16 +91,16 @@ export function getPortfolioRouter(prisma) {
         averageRiskScore = totalWeightedRiskPoints / totalHoldingsCurrentValue;
       }
 
-      let riskTier = 'Low Risk (Very Chill 🍃)';
+      let riskTier = 'Low Risk (Conservative)';
       if (averageRiskScore > 1.6 && averageRiskScore <= 2.4) {
-        riskTier = 'Medium Risk (Balanced ⚖️)';
+        riskTier = 'Medium Risk (Balanced)';
       } else if (averageRiskScore > 2.4) {
-        riskTier = 'High Risk (Maximum Adrenaline ⚡)';
+        riskTier = 'High Risk (Aggressive)';
       }
 
       // Calculate Diversification Rating out of 100
       let diversificationScore = 0;
-      let diversificationStatus = 'Not Diversified (Cash Only 💸)';
+      let diversificationStatus = 'Not Diversified (Cash Only)';
 
       if (totalHoldingsCurrentValue > 0) {
         const uniqueSectorsCount = Object.keys(sectorWeights).length;
@@ -119,11 +119,11 @@ export function getPortfolioRouter(prisma) {
         diversificationScore = Math.max(10, Math.min(100, Math.round(baseScore - concentrationDeductions)));
 
         if (diversificationScore >= 80) {
-          diversificationStatus = 'Diversification Guru 🏆';
+          diversificationStatus = 'Well Diversified (Optimal)';
         } else if (diversificationScore >= 50) {
-          diversificationStatus = 'Healthy Spread 🥗';
+          diversificationStatus = 'Healthy Spread (Moderate)';
         } else {
-          diversificationStatus = 'Concentrated Risk 🛑';
+          diversificationStatus = 'Concentrated Risk (High Exposure)';
         }
       }
 

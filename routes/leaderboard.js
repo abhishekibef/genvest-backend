@@ -22,9 +22,9 @@ function calculateLearningLeague(totalXP) {
 }
 
 const TIER_CONFIG = {
-  A: { label: 'Tier A (Elite)', icon: '👑', color: '#FFD700' },
-  B: { label: 'Tier B (Solid)', icon: '⭐', color: '#3B82F6' },
-  C: { label: 'Tier C (Learning)', icon: '📚', color: '#A78BFA' },
+  A: { label: 'Tier A (Elite)', icon: 'crown', color: '#FFD700' },
+  B: { label: 'Tier B (Solid)', icon: 'star', color: '#3B82F6' },
+  C: { label: 'Tier C (Learning)', icon: 'learn', color: '#A78BFA' },
 };
 
 // ============================================================

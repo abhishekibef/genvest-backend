@@ -191,7 +191,7 @@ export function getPaymentRouter(prisma) {
 
         res.json({
           success: true,
-          message: '🎉 Welcome to Moolzen Premium!',
+          message: 'Welcome to Moolzen Premium!',
           isPremium: true,
           premiumExpiresAt: endDate,
         });
@@ -221,7 +221,7 @@ export function getPaymentRouter(prisma) {
 
         res.json({
           success: true,
-          message: `🎮 Joined contest "${lobby.name}" successfully!`,
+          message: `Joined contest "${lobby.name}" successfully!`,
           entry,
           lobbyCode: lobby.code,
         });

@@ -251,15 +251,15 @@ async function start() {
     <p class="subtitle">Broadcast live alerts directly to all Moolzen user devices.</p>
 
     <div class="presets">
-      <button class="preset-btn" onclick="applyPreset('🌙 Good Night! Monday Market Alert', 'Rest up — Sensex & Nifty open Monday 9:15 AM. Your portfolio is waiting. Will you be ready? 🚀')">🌙 Good Night</button>
-      <button class="preset-btn" onclick="applyPreset('☀️ Market Opens in 15 Mins!', 'Get ready! Indian markets open at 9:15 AM. Check your top movers and practice trades now. 📈')">☀️ Market Open</button>
-      <button class="preset-btn" onclick="applyPreset('🏆 Weekly Trading Contest is Live!', 'Compete against other traders this week to climb the leaderboard and win prizes! 💎')">🏆 Contest Live</button>
+      <button class="preset-btn" onclick="applyPreset('Market Alert: Monday Market Opening', 'Rest up — Sensex and Nifty open Monday at 9:15 AM. Your portfolio is waiting. Prepare your watchlist today.')">Monday Market Alert</button>
+      <button class="preset-btn" onclick="applyPreset('Market Opens in 15 Minutes', 'Get ready! Indian markets open at 9:15 AM. Check your top movers and practice trades now.')">Market Open Alert</button>
+      <button class="preset-btn" onclick="applyPreset('Weekly Trading Contest is Live', 'Compete against other traders this week to climb the leaderboard and sharpen your trading skills.')">Contest Live Alert</button>
     </div>
 
     <form id="push-form" onsubmit="sendPush(event)">
       <div class="field">
         <label>Notification Title</label>
-        <input type="text" id="title" placeholder="e.g. Market Alert 📈" required />
+        <input type="text" id="title" placeholder="e.g. Market Alert: Morning Movers" required />
       </div>
 
       <div class="field">
@@ -279,7 +279,7 @@ async function start() {
       </div>
 
       <button type="submit" id="submit-btn" class="send-btn">
-        <span>🚀 Send Broadcast to All Users</span>
+        <span>Send Broadcast to All Users</span>
       </button>
     </form>
 
@@ -314,20 +314,20 @@ async function start() {
         
         if (data.success) {
           box.className = 'success';
-          box.innerHTML = '🎉 <b>Successfully Delivered!</b> Sent to <b>' + data.sent + '</b> devices' + (data.failed > 0 ? ' (' + data.failed + ' expired/offline)' : '') + '.';
+          box.innerHTML = '<b>Successfully Delivered!</b> Sent to <b>' + data.sent + '</b> devices' + (data.failed > 0 ? ' (' + data.failed + ' expired/offline)' : '') + '.';
           box.style.display = 'block';
         } else {
           box.className = 'error';
-          box.innerHTML = '❌ <b>Error:</b> ' + (data.error || 'Failed to send notification');
+          box.innerHTML = '<b>Error:</b> ' + (data.error || 'Failed to send notification');
           box.style.display = 'block';
         }
       } catch (err) {
         box.className = 'error';
-        box.innerHTML = '❌ <b>Network error:</b> ' + err.message;
+        box.innerHTML = '<b>Network error:</b> ' + err.message;
         box.style.display = 'block';
       } finally {
         btn.disabled = false;
-        btn.innerHTML = '<span>🚀 Send Broadcast to All Users</span>';
+        btn.innerHTML = '<span>Send Broadcast to All Users</span>';
       }
     }
   </script>
@@ -596,8 +596,8 @@ async function start() {
     <p class="subtitle">Send high-deliverability emails directly to all registered users via Resend.</p>
 
     <div class="presets">
-      <button class="preset-btn" onclick="applyUpdatePreset()">🚀 App Update (v1.0.8)</button>
-      <button class="preset-btn" onclick="applyWelcomePreset()">👋 Welcome Back</button>
+      <button class="preset-btn" onclick="applyUpdatePreset()">App Update (v1.0.8)</button>
+      <button class="preset-btn" onclick="applyWelcomePreset()">Welcome Back</button>
     </div>
 
     <form id="email-form" onsubmit="sendEmail(event)">
@@ -613,7 +613,7 @@ async function start() {
 
       <div class="field">
         <label>Subject Line</label>
-        <input type="text" id="subject" placeholder="e.g. 🚀 Update Moolzen: All-New AI Market Analysis is Live!" required />
+        <input type="text" id="subject" placeholder="e.g. Update Moolzen: All-New AI Market Analysis is Live!" required />
       </div>
 
       <div class="field">
@@ -622,7 +622,7 @@ async function start() {
       </div>
 
       <button type="submit" id="submit-btn" class="send-btn">
-        <span>📧 Broadcast Email to All ${userCount} Users</span>
+        <span>Broadcast Email to All ${userCount} Users</span>
       </button>
     </form>
 
@@ -631,18 +631,18 @@ async function start() {
 
   <script>
     function applyUpdatePreset() {
-      document.getElementById('subject').value = '🚀 Update Moolzen: All-New AI Market Analysis & Faster UI is Live!';
-      document.getElementById('html').value = \`
+      document.getElementById('subject').value = 'Update Moolzen: All-New AI Market Analysis & Faster UI is Live!';
+      document.getElementById('html').value = `
 <div style="font-family: Arial, sans-serif; background-color: #0b0e14; color: #ffffff; padding: 32px; border-radius: 16px; max-width: 600px; margin: 0 auto;">
-  <h2 style="color: #60a5fa; margin-bottom: 12px;">🚀 New Moolzen Update is Live on Google Play!</h2>
+  <h2 style="color: #60a5fa; margin-bottom: 12px;">New Moolzen Update is Live on Google Play!</h2>
   <p style="font-size: 15px; color: #cbd5e1; line-height: 1.6;">
     Hey Trader,<br><br>
     We have just released a major update (v1.0.8) packed with powerful new features to supercharge your trading journey:
   </p>
   <ul style="color: #cbd5e1; font-size: 14px; line-height: 1.8; margin: 16px 0 24px 20px;">
-    <li><b>🤖 Daily AI Market Analysis:</b> Personalized portfolio breakdown every day at 3:35 PM right as the Indian market closes.</li>
-    <li><b>🔔 Smart Notification Center:</b> Instant alerts for top market movers and weekly contests.</li>
-    <li><b>⚡ Faster Live Charts:</b> Smoother practice trade execution and real-time quotes.</li>
+    <li><b>Daily AI Market Analysis:</b> Personalized portfolio breakdown every day at 3:35 PM right as the Indian market closes.</li>
+    <li><b>Smart Notification Center:</b> Instant alerts for top market movers and weekly contests.</li>
+    <li><b>Faster Live Charts:</b> Smoother practice trade execution and real-time quotes.</li>
   </ul>
   <div style="text-align: center; margin: 32px 0;">
     <a href="https://play.google.com/store/apps/details?id=com.moolzen.app" style="background-color: #2563eb; color: #ffffff; font-weight: bold; padding: 14px 28px; border-radius: 12px; text-decoration: none; display: inline-block;">
@@ -653,11 +653,11 @@ async function start() {
     Happy Trading,<br><b>Team Moolzen</b>
   </p>
 </div>
-\`.trim();
+`.trim();
     }
 
     function applyWelcomePreset() {
-      document.getElementById('subject').value = '📈 Markets are open: Claim your daily practice coins on Moolzen!';
+      document.getElementById('subject').value = 'Markets are open: Claim your daily practice coins on Moolzen!';
       document.getElementById('html').value = '<p>Hey Trader,</p><p>Practice trading Nifty and Sensex stocks risk-free on Moolzen.</p><p><a href="https://play.google.com/store/apps/details?id=com.moolzen.app">Open App</a></p>';
     }
 
@@ -692,20 +692,20 @@ async function start() {
         
         if (data.success) {
           box.className = 'success';
-          box.innerHTML = '🎉 <b>Email Broadcast Completed!</b> Sent to <b>' + data.sent + '</b> users' + (data.failed > 0 ? ' (' + data.failed + ' failed)' : '') + '.';
+          box.innerHTML = '<b>Email Broadcast Completed!</b> Sent to <b>' + data.sent + '</b> users' + (data.failed > 0 ? ' (' + data.failed + ' failed)' : '') + '.';
           box.style.display = 'block';
         } else {
           box.className = 'error';
-          box.innerHTML = '❌ <b>Error:</b> ' + (data.error || 'Failed to send emails');
+          box.innerHTML = '<b>Error:</b> ' + (data.error || 'Failed to send emails');
           box.style.display = 'block';
         }
       } catch (err) {
         box.className = 'error';
-        box.innerHTML = '❌ <b>Network error:</b> ' + err.message;
+        box.innerHTML = '<b>Network error:</b> ' + err.message;
         box.style.display = 'block';
       } finally {
         btn.disabled = false;
-        btn.innerHTML = '<span>📧 Broadcast Email to All Users</span>';
+        btn.innerHTML = '<span>Broadcast Email to All Users</span>';
       }
     }
   </script>

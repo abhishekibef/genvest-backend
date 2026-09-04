@@ -98,7 +98,7 @@ export function getBadgesRouter(prisma) {
       if (user.transactions.length > 0) {
         earnedBadges.push({
           badgeName: 'First Trade',
-          badgeIcon: '🎯',
+          badgeIcon: 'target',
           description: 'Completed first trade'
         });
       }
@@ -107,7 +107,7 @@ export function getBadgesRouter(prisma) {
       if (maxReturnPct >= 20) {
         earnedBadges.push({
           badgeName: 'Profit Master',
-          badgeIcon: '📈',
+          badgeIcon: 'chart',
           description: '20% overall profit'
         });
       }
@@ -115,7 +115,7 @@ export function getBadgesRouter(prisma) {
       if (isRankOne) {
         earnedBadges.push({
           badgeName: 'Daily Champion',
-          badgeIcon: '🏆',
+          badgeIcon: 'trophy',
           description: 'Won a competition (Rank #1)'
         });
       }
@@ -123,7 +123,7 @@ export function getBadgesRouter(prisma) {
       if (isScholar) {
         earnedBadges.push({
           badgeName: 'Scholar',
-          badgeIcon: '📚',
+          badgeIcon: 'scholar',
           description: 'All tutorials done'
         });
       }
@@ -131,7 +131,7 @@ export function getBadgesRouter(prisma) {
       if (user.streak >= 7) {
         earnedBadges.push({
           badgeName: 'Streak Master',
-          badgeIcon: '🔥',
+          badgeIcon: 'streak',
           description: '7 day streak'
         });
       }
@@ -139,7 +139,7 @@ export function getBadgesRouter(prisma) {
       if (userNetWorth >= 5000000) {
         earnedBadges.push({
           badgeName: 'High Roller',
-          badgeIcon: '💰',
+          badgeIcon: 'coins',
           description: '₹50L portfolio'
         });
       }

@@ -302,7 +302,7 @@ export function getAuthRouter(prisma) {
 
       // 2FA not enabled, login immediately
       res.status(200).json({
-        message: 'Auth successful! Ready to trade 🚀',
+        message: 'Auth successful! Ready to trade',
         isNewUser,
         user: {
           id: user.id,
@@ -442,7 +442,7 @@ export function getAuthRouter(prisma) {
       }
 
       res.status(200).json({
-        message: 'Google auth successful! Ready to trade 🚀',
+        message: 'Google auth successful! Ready to trade',
         isNewUser,
         user: {
           id: user.id,

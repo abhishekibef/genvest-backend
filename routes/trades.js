@@ -88,7 +88,7 @@ export function getTradesRouter(prisma) {
       });
 
       return res.status(200).json({
-        message: 'Trade executed successfully! 🚀',
+        message: 'Trade executed successfully!',
         transaction: {
           stockId: stock.id,
           type: 'BUY',
@@ -188,7 +188,7 @@ export function getTradesRouter(prisma) {
       });
 
       return res.status(200).json({
-        message: 'Shares sold successfully! 💰',
+        message: 'Shares sold successfully!',
         transaction: {
           stockId: stock.id,
           type: 'SELL',
@@ -327,13 +327,13 @@ export function getTradesRouter(prisma) {
           warning = {
             sector: targetSector,
             concentration: sectorConcentration,
-            message: `⚠️ ${targetSector} Overload! You just put more eggs in the ${targetSector.toLowerCase()} basket. It now takes up ${sectorConcentration}% of your total virtual net worth. Look into ${tipSector} to spread the risk.`
+            message: `${targetSector} Concentration Notice: You have increased exposure in ${targetSector.toLowerCase()}. It now accounts for ${sectorConcentration}% of your total portfolio value. Consider ${tipSector} to diversify risk.`
           };
         }
 
         // Return rich response with context-aware learning card
         return res.status(200).json({
-          message: 'Trade executed successfully! 🚀',
+          message: 'Trade executed successfully!',
           transaction: {
             stockId: stock.id,
             type: 'BUY',
@@ -391,7 +391,7 @@ export function getTradesRouter(prisma) {
         });
 
         return res.status(200).json({
-          message: 'Shares sold successfully! 💰',
+          message: 'Shares sold successfully!',
           transaction: {
             stockId: stock.id,
             type: 'SELL',

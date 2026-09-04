@@ -20,7 +20,7 @@ export function getCompetitionRouter(prisma) {
       });
 
       if (!tournament) {
-        return res.json({ prizePool: '🏆 Virtual Trophy + Badge', topEntries: [] });
+        return res.json({ prizePool: 'Virtual Trophy + Badge', topEntries: [] });
       }
 
       const topEntries = tournament.entries.map(entry => ({
@@ -30,7 +30,7 @@ export function getCompetitionRouter(prisma) {
       }));
 
       res.status(200).json({
-        prizePool: '🏆 Virtual Trophy + Badge',
+        prizePool: 'Virtual Trophy + Badge',
         topEntries
       });
     } catch (error) {

@@ -6,13 +6,13 @@ export function getLearnRouter(prisma) {
 
   // Badge definitions based on lesson completion milestones
   const BADGE_MILESTONES = [
-    { count: 1, id: 'SCHOLAR', name: 'Smart Start 🎓', desc: 'Completed your first lesson!' },
-    { count: 5, id: 'CURIOUS_MIND', name: 'Curious Mind 🧐', desc: 'Completed 5 lessons!' },
-    { count: 10, id: 'FINFLUENCER', name: 'Finfluencer 📣', desc: 'Completed 10 lessons!' },
-    { count: 25, id: 'KNOWLEDGE_SEEKER', name: 'Knowledge Seeker 📖', desc: 'Completed 25 lessons!' },
-    { count: 50, id: 'MARKET_SCHOLAR', name: 'Market Scholar 🏅', desc: 'Completed 50 lessons!' },
-    { count: 100, id: 'FINANCE_GURU', name: 'Finance Guru 🧘', desc: 'Completed 100 lessons!' },
-    { count: 150, id: 'MARKET_WIZARD', name: 'Market Wizard 🧙‍♂️', desc: 'Completed 150 lessons!' },
+    { count: 1, id: 'SCHOLAR', name: 'Smart Start', desc: 'Completed your first lesson!' },
+    { count: 5, id: 'CURIOUS_MIND', name: 'Curious Mind', desc: 'Completed 5 lessons!' },
+    { count: 10, id: 'FINFLUENCER', name: 'Finfluencer', desc: 'Completed 10 lessons!' },
+    { count: 25, id: 'KNOWLEDGE_SEEKER', name: 'Knowledge Seeker', desc: 'Completed 25 lessons!' },
+    { count: 50, id: 'MARKET_SCHOLAR', name: 'Market Scholar', desc: 'Completed 50 lessons!' },
+    { count: 100, id: 'FINANCE_GURU', name: 'Finance Guru', desc: 'Completed 100 lessons!' },
+    { count: 150, id: 'MARKET_WIZARD', name: 'Market Wizard', desc: 'Completed 150 lessons!' },
   ];
 
   // ─── 1. Get all levels with user progress ───────────────────────
@@ -193,7 +193,7 @@ export function getLearnRouter(prisma) {
         completed: false,
         passed: false,
         score: quizScore,
-        message: 'You need at least 70% to pass. Review and try again! 💪'
+        message: 'You need at least 70% to pass. Review and try again!'
       });
     }
 
@@ -301,7 +301,7 @@ export function getLearnRouter(prisma) {
         if (levelCompleted) {
           newBadges.push({
             id: `LEVEL_${lessonData.level.number}_COMPLETE`,
-            name: `Level ${lessonData.level.number} Champion 🏆`,
+            name: `Level ${lessonData.level.number} Champion`,
             desc: `Completed all lessons in "${lessonData.level.title}"!`
           });
         }
@@ -319,10 +319,10 @@ export function getLearnRouter(prisma) {
         newBadges,
         levelCompleted,
         message: quizScore === 100
-          ? 'PERFECT SCORE! You are a market genius! 🌟'
+          ? 'PERFECT SCORE! You are a market genius!'
           : quizScore >= 90
-            ? 'Outstanding! Bonus XP earned! 🔥'
-            : 'Great job! You passed! 🎉'
+            ? 'Outstanding! Bonus XP earned!'
+            : 'Great job! You passed!'
       });
     } catch (error) {
       console.error('❌ Failed to complete lesson:', error);
