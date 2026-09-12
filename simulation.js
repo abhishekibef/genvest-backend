@@ -150,11 +150,20 @@ export async function simulateTicks(prisma) {
 // Global variable to keep track of last simulated time
 let lastSimulatedTime = Date.now();
 
-// Determine if the Indian Stock Market is currently open (Monday to Friday, 9:15 AM to 3:30 PM IST)
+const NSE_HOLIDAYS = new Set([
+  '2025-01-26', '2025-02-26', '2025-03-14', '2025-03-31', '2025-04-10', '2025-04-14', '2025-04-18', '2025-05-01', '2025-06-07', '2025-08-15', '2025-08-27', '2025-10-02', '2025-10-21', '2025-10-22', '2025-11-05', '2025-12-25',
+  '2026-01-26', '2026-02-15', '2026-03-03', '2026-03-20', '2026-03-31', '2026-04-03', '2026-04-14', '2026-05-01', '2026-05-27', '2026-06-25', '2026-08-15', '2026-09-14', '2026-10-02', '2026-10-20', '2026-11-08', '2026-11-24', '2026-12-25',
+  '2027-01-26', '2027-05-01', '2027-08-15', '2027-10-02', '2027-12-25',
+]);
+
+// Determine if the Indian Stock Market is currently open (Monday to Friday, 9:15 AM to 3:30 PM IST, non-holiday)
 export function isIndianMarketOpen(date = new Date()) {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Kolkata',
     hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     weekday: 'short',
     hour: '2-digit',
     minute: '2-digit'
@@ -169,9 +178,10 @@ export function isIndianMarketOpen(date = new Date()) {
   const weekday = comps.weekday;
   const hour = parseInt(comps.hour, 10);
   const minute = parseInt(comps.minute, 10);
+  const dateKey = `${comps.year}-${comps.month}-${comps.day}`;
   
-  // Closed on Saturday and Sunday
-  if (weekday === 'Sat' || weekday === 'Sun') {
+  // Closed on Saturday and Sunday or official holidays
+  if (weekday === 'Sat' || weekday === 'Sun' || NSE_HOLIDAYS.has(dateKey)) {
     return false;
   }
   
