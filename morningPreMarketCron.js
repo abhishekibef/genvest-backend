@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { messaging } from "./firebaseAdmin.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { b64Gemini } from "./geminiConfig.js";
+import { isIndianTradingDay } from "./simulation.js";
 
 const prisma = new PrismaClient();
 const fallbackKey = Buffer.from(b64Gemini, "base64").toString("utf-8");
@@ -67,6 +68,11 @@ async function sendFCMWithRetry(fcmToken, title, body, maxRetries = 2) {
 export const runMorningPreMarketPushNotifications = async (forceSend = false) => {
   let logs = [];
   const log = (msg) => { console.log(msg); logs.push(msg); };
+
+  if (!forceSend && !isIndianTradingDay()) {
+    log("💤 Indian Stock Market is closed today (Weekend or Holiday). Skipping morning pre-market alerts.");
+    return { success: true, logs, skipped: true, reason: "Market is closed today" };
+  }
 
   log("🌅 Starting Morning Market Push Broadcast (with Rate-Limiting & Batching)...");
 

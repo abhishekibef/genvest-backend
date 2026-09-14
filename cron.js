@@ -1,11 +1,16 @@
 import cron from 'node-cron';
 import { PrismaClient } from '@prisma/client';
+import { isIndianTradingDay } from './simulation.js';
 
 const prisma = new PrismaClient();
 
 // Daily at 15:30 (3:30 PM) -> "30 15 * * *"
 // For testing locally without waiting, we'll expose a function that can also be manually triggered
 export const runDailyTournamentReset = async () => {
+  if (!isIndianTradingDay()) {
+    console.log('💤 Indian Stock Market was closed today. Skipping daily tournament sprint reset.');
+    return;
+  }
   console.log('🔄 Running Daily Sprint Reset...');
   try {
     const users = await prisma.user.findMany({
