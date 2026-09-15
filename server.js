@@ -36,8 +36,11 @@ async function start() {
   const { getPaymentRouter } = await import('./routes/payment.js');
   const { getNotificationsRouter } = await import('./routes/notifications.js');
   const { getEmailDripRouter } = await import('./routes/emailDrip.js');
+  const { getIntradayRouter } = await import('./routes/intraday.js');
+  const { getOptionsRouter } = await import('./routes/options.js');
   const { runSimulationMiddleware } = await import('./simulation.js');
   const { initCronJobs } = await import('./cron.js');
+  const { startIntradaySquareOffCron } = await import('./intradaySquareOffCron.js');
 
   const app = express();
   const prisma = new PrismaClient();
@@ -62,6 +65,8 @@ async function start() {
   app.use('/api/payment', getPaymentRouter(prisma));
   app.use('/api/notifications', getNotificationsRouter(prisma));
   app.use('/api/email-drip', getEmailDripRouter(prisma));
+  app.use('/api', getIntradayRouter(prisma));
+  app.use('/api', getOptionsRouter(prisma));
 
   app.get('/api/test-push', async (req, res) => {
     try {
@@ -829,6 +834,7 @@ async function start() {
   });
 
   initCronJobs();
+  startIntradaySquareOffCron(prisma);
 
   app.listen(PORT, () => {
     console.log(`🚀 Gen Z Trading Server running on: http://localhost:${PORT}`);

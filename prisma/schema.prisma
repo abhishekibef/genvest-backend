@@ -70,6 +70,10 @@ model User {
   // Notification History
   notifications              Notification[]
 
+  // Intraday & F&O
+  intradayPositions      IntradayPosition[]
+  optionPositions        OptionPosition[]
+
   @@index([roiPercentage])
   @@index([tier])
   @@index([globalRank])
@@ -470,4 +474,51 @@ model WeeklyContestTransaction {
   contest    WeeklyContest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   stock      Stock          @relation(fields: [stockId], references: [id])
+}
+
+// ========================
+// INTRADAY POSITIONS
+// ========================
+model IntradayPosition {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  stockId     String
+  type        String    // "LONG" or "SHORT"
+  quantity    Int
+  entryPrice  Float
+  marginUsed  Float
+  status      String    @default("OPEN")
+  exitPrice   Float?
+  pnl         Float?
+  openedAt    DateTime  @default(now())
+  closedAt    DateTime?
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+// ========================
+// F&O OPTION POSITIONS
+// ========================
+model OptionPosition {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  underlying  String
+  strikePrice Float
+  optionType  String
+  expiryDate  DateTime
+  lots        Int
+  lotSize     Int
+  buyPremium  Float
+  totalCost   Float
+  status      String    @default("OPEN")
+  exitPremium Float?
+  pnl         Float?
+  openedAt    DateTime  @default(now())
+  closedAt    DateTime?
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
 }
