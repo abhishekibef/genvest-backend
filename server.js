@@ -38,6 +38,7 @@ async function start() {
   const { getEmailDripRouter } = await import('./routes/emailDrip.js');
   const { getIntradayRouter } = await import('./routes/intraday.js');
   const { getOptionsRouter } = await import('./routes/options.js');
+  const { getCommodityRouter } = await import('./routes/commodity.js');
   const { runSimulationMiddleware } = await import('./simulation.js');
   const { initCronJobs } = await import('./cron.js');
   const { startIntradaySquareOffCron } = await import('./intradaySquareOffCron.js');
@@ -67,6 +68,7 @@ async function start() {
   app.use('/api/email-drip', getEmailDripRouter(prisma));
   app.use('/api', getIntradayRouter(prisma));
   app.use('/api', getOptionsRouter(prisma));
+  app.use('/api', getCommodityRouter(prisma));
 
   app.get('/api/test-push', async (req, res) => {
     try {

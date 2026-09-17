@@ -70,9 +70,11 @@ model User {
   // Notification History
   notifications              Notification[]
 
-  // Intraday & F&O
+  // Intraday & F&O & Commodities
   intradayPositions      IntradayPosition[]
   optionPositions        OptionPosition[]
+  commodityCash          Float                  @default(10000.0)
+  commodityPositions     CommodityPosition[]
 
   @@index([roiPercentage])
   @@index([tier])
@@ -514,6 +516,32 @@ model OptionPosition {
   totalCost   Float
   status      String    @default("OPEN")
   exitPremium Float?
+  pnl         Float?
+  openedAt    DateTime  @default(now())
+  closedAt    DateTime?
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+// ========================
+// COMMODITY POSITIONS (XM 360 STYLE)
+// ========================
+model CommodityPosition {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  symbol      String
+  name        String
+  type        String    // "BUY" (Long) or "SELL" (Short)
+  lots        Float     @default(1.0)
+  unitsPerLot Float     @default(100.0)
+  entryPrice  Float
+  exitPrice   Float?
+  stopLoss    Float?
+  takeProfit  Float?
+  marginUsed  Float
+  status      String    @default("OPEN") // "OPEN", "CLOSED"
   pnl         Float?
   openedAt    DateTime  @default(now())
   closedAt    DateTime?
