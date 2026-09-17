@@ -117,9 +117,43 @@ for (const item of COMMODITY_CATALOG) {
   };
 }
 
-// Trigger first live fetch immediately and then schedule every 25s
+// Trigger live fetch from Yahoo Finance every 20s
 refreshCommodityQuotes();
-setInterval(refreshCommodityQuotes, 25000);
+setInterval(refreshCommodityQuotes, 20000);
+
+// 24/7 Real-Time Micro-Tick Engine (simulates XM 360 live order-book liquidity)
+// Ticks prices by small increments every 1.2 seconds so users see live flashing rates
+setInterval(() => {
+  for (const item of COMMODITY_CATALOG) {
+    const q = quotesCache[item.symbol];
+    if (!q) continue;
+
+    // Small random micro-tick: +/- 0.01% to 0.04%
+    const tickMultiplier = 1 + (Math.random() - 0.495) * 0.0006;
+    const newPrice = parseFloat((q.price * tickMultiplier).toFixed(item.digits || 2));
+    const halfSpread = (item.spread || 0.5) / 2;
+    const bid = parseFloat(Math.max(0, newPrice - halfSpread).toFixed(item.digits || 2));
+    const ask = parseFloat((newPrice + halfSpread).toFixed(item.digits || 2));
+
+    const change = newPrice - (q.prevClose || newPrice);
+    const changePercent = q.prevClose > 0 ? (change / q.prevClose) * 100 : 0;
+    const dayHigh = Math.max(q.dayHigh, newPrice);
+    const dayLow = Math.min(q.dayLow, newPrice);
+
+    quotesCache[item.symbol] = {
+      ...q,
+      price: newPrice,
+      bid,
+      ask,
+      change,
+      changePercent,
+      dayHigh,
+      dayLow,
+      lastTickDir: newPrice >= q.price ? 'up' : 'down',
+      updatedAt: Date.now()
+    };
+  }
+}, 1200);
 
 export function getCommodityRouter(prisma) {
   const router = express.Router();
