@@ -51,13 +51,16 @@ async function refreshCommodityQuotes() {
 
       if (meta && meta.regularMarketPrice) {
         const currentPrice = meta.regularMarketPrice;
-        const closes = result?.indicators?.quote?.[0]?.close?.filter(c => c != null && !isNaN(c)) || [];
-        // True previous close is second-to-last candle close
-        const prevClose = closes.length >= 2 ? closes[closes.length - 2] : (meta.chartPreviousClose || currentPrice);
-        const change = currentPrice - prevClose;
-        const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
-        const dayHigh = meta.regularMarketDayHigh || currentPrice * 1.008;
-        const dayLow = meta.regularMarketDayLow || currentPrice * 0.992;
+        const q = result?.indicators?.quote?.[0];
+        const validOpens = q?.open?.filter(o => o != null && !isNaN(o)) || [];
+        const sessionOpen = validOpens.length > 0 ? validOpens[validOpens.length - 1] : (meta.chartPreviousClose || currentPrice);
+        
+        // XM 360 calculates the daily performance from the current session open
+        const baseRef = sessionOpen || currentPrice;
+        const change = currentPrice - baseRef;
+        const changePercent = baseRef > 0 ? (change / baseRef) * 100 : 0;
+        const dayHigh = meta.regularMarketDayHigh || Math.max(currentPrice, baseRef);
+        const dayLow = meta.regularMarketDayLow || Math.min(currentPrice, baseRef);
 
         const halfSpread = (item.spread || 0.5) / 2;
         const bid = Math.max(0, currentPrice - halfSpread);
@@ -74,6 +77,7 @@ async function refreshCommodityQuotes() {
           ask,
           spread: item.spread,
           prevClose,
+          baseRef,
           change,
           changePercent,
           dayHigh,
@@ -128,15 +132,16 @@ setInterval(() => {
     const q = quotesCache[item.symbol];
     if (!q) continue;
 
-    // Small random micro-tick: +/- 0.01% to 0.04%
-    const tickMultiplier = 1 + (Math.random() - 0.495) * 0.0006;
+    // Small random micro-tick: +/- 0.005% for subtle realistic liquidity tick
+    const tickMultiplier = 1 + (Math.random() - 0.495) * 0.0002;
     const newPrice = parseFloat((q.price * tickMultiplier).toFixed(item.digits || 2));
     const halfSpread = (item.spread || 0.5) / 2;
     const bid = parseFloat(Math.max(0, newPrice - halfSpread).toFixed(item.digits || 2));
     const ask = parseFloat((newPrice + halfSpread).toFixed(item.digits || 2));
 
-    const change = newPrice - (q.prevClose || newPrice);
-    const changePercent = q.prevClose > 0 ? (change / q.prevClose) * 100 : 0;
+    const ref = q.baseRef || q.prevClose || newPrice;
+    const change = newPrice - ref;
+    const changePercent = ref > 0 ? (change / ref) * 100 : 0;
     const dayHigh = Math.max(q.dayHigh, newPrice);
     const dayLow = Math.min(q.dayLow, newPrice);
 
@@ -153,7 +158,7 @@ setInterval(() => {
       updatedAt: Date.now()
     };
   }
-}, 1200);
+}, 1500);
 
 export function getCommodityRouter(prisma) {
   const router = express.Router();
