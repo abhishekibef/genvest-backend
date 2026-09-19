@@ -1,6 +1,6 @@
 import express from 'express';
 import https from 'https';
-import { COMMODITY_CATALOG, getCommodityBySymbol } from '../commodityConfig.js';
+import { COMMODITY_CATALOG, getCommodityBySymbol, isCommodityMarketOpen } from '../commodityConfig.js';
 
 // In-memory cache for live commodity quotes and 5-day charts
 const quotesCache = {};
@@ -76,7 +76,7 @@ async function refreshCommodityQuotes() {
           bid,
           ask,
           spread: item.spread,
-          prevClose,
+          prevClose: meta.chartPreviousClose || currentPrice,
           baseRef,
           change,
           changePercent,
@@ -125,10 +125,13 @@ for (const item of COMMODITY_CATALOG) {
 refreshCommodityQuotes();
 setInterval(refreshCommodityQuotes, 20000);
 
-// 24/7 Real-Time Micro-Tick Engine (simulates XM 360 live order-book liquidity)
-// Ticks prices by small increments every 1.2 seconds so users see live flashing rates
+// Real-Time Micro-Tick Engine (simulates XM 360 live order-book liquidity during open market hours)
+// Ticks prices by small increments every 1.5 seconds so users see live flashing rates when market is open
 setInterval(() => {
   for (const item of COMMODITY_CATALOG) {
+    // If the market is closed, FREEZE the price (no micro-ticks on weekends / outside market hours)
+    if (!isCommodityMarketOpen(item.symbol)) continue;
+
     const q = quotesCache[item.symbol];
     if (!q) continue;
 
@@ -166,6 +169,7 @@ export function getCommodityRouter(prisma) {
   // 1. GET /api/commodities - List all commodities with live prices
   router.get('/commodities', (req, res) => {
     const list = COMMODITY_CATALOG.map(item => {
+      const isMarketOpen = isCommodityMarketOpen(item.symbol);
       const q = quotesCache[item.symbol] || {
         symbol: item.symbol,
         name: item.name,
@@ -184,7 +188,11 @@ export function getCommodityRouter(prisma) {
         leverage: item.leverage,
         digits: item.digits
       };
-      return q;
+      return {
+        ...q,
+        isMarketOpen,
+        marketStatus: isMarketOpen ? 'Open' : 'Market Closed'
+      };
     });
 
     res.json({
@@ -331,6 +339,12 @@ export function getCommodityRouter(prisma) {
 
       const config = getCommodityBySymbol(symbol);
       if (!config) return res.status(404).json({ error: 'Invalid commodity symbol' });
+
+      if (!isCommodityMarketOpen(config.symbol)) {
+        return res.status(400).json({
+          error: 'Commodity market is currently closed. Standard commodities open Sunday 6:00 PM EST (Monday 3:30 AM IST).'
+        });
+      }
 
       if (numLots < config.minLot || numLots > config.maxLot) {
         return res.status(400).json({ error: `Lots must be between ${config.minLot} and ${config.maxLot}` });

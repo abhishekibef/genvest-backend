@@ -254,3 +254,52 @@ export const COMMODITY_CATALOG = [
 export function getCommodityBySymbol(symbol) {
   return COMMODITY_CATALOG.find(c => c.symbol === symbol || c.name === symbol) || null;
 }
+
+/**
+ * Checks whether global commodity exchanges are currently open for trading.
+ * Follows CME (COMEX/NYMEX), ICE, and LME global schedule:
+ * - Weekly Session: Sunday 18:00 EST to Friday 17:00 EST
+ * - Weekend Close: Friday 17:00 EST to Sunday 18:00 EST (Entire Saturday & Sunday daytime)
+ * - Daily Maintenance Break: Mon-Thu 17:00 to 18:00 EST
+ * - Special 24/7 contracts (e.g. GOLD24-7) remain open 24/7
+ */
+export function isCommodityMarketOpen(symbol = '', date = new Date()) {
+  if (symbol && (symbol.endsWith('24-7') || symbol.includes('247'))) {
+    return true;
+  }
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour12: false,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    const parts = formatter.formatToParts(date);
+    const comps = {};
+    for (const p of parts) comps[p.type] = p.value;
+
+    const day = comps.weekday; // 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'
+    const hour = parseInt(comps.hour, 10);
+    const minute = parseInt(comps.minute, 10);
+    const timeInMinutes = hour * 60 + minute;
+
+    // Friday after 17:00 (5:00 PM) ET is closed for the weekend
+    if (day === 'Fri' && timeInMinutes >= 17 * 60) return false;
+    // Saturday is completely closed
+    if (day === 'Sat') return false;
+    // Sunday before 18:00 (6:00 PM) ET is closed
+    if (day === 'Sun' && timeInMinutes < 18 * 60) return false;
+
+    // Daily maintenance break: Mon-Thu 17:00 to 18:00 ET
+    if (['Mon', 'Tue', 'Wed', 'Thu'].includes(day) && timeInMinutes >= 17 * 60 && timeInMinutes < 18 * 60) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return true;
+  }
+}
+
