@@ -153,5 +153,21 @@ export function getPortfolioRouter(prisma) {
     }
   });
 
+  // POST /api/portfolio/reset-balance - Set/Reset virtual stocks balance
+  router.post('/reset-balance', async (req, res) => {
+    try {
+      const { userId, amount } = req.body;
+      const resetAmount = parseFloat(amount) || 1000000.0;
+      const updatedUser = await prisma.user.update({
+        where: { id: Number(userId) },
+        data: { cash: resetAmount }
+      });
+      res.json({ success: true, cash: updatedUser.cash });
+    } catch (err) {
+      console.error('Failed to reset stocks balance:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 }
