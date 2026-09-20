@@ -207,21 +207,55 @@ export function getCommodityRouter(prisma) {
   router.get('/commodities/chart/:symbol', async (req, res) => {
     try {
       const { symbol } = req.params;
-      const timeframe = req.query.timeframe || '1H'; // 1H, 1D, 1W, 1M, 3M, 1Y
+      const timeframe = (req.query.timeframe || '1H').toLowerCase();
       const config = getCommodityBySymbol(symbol);
       if (!config) return res.status(404).json({ error: 'Commodity not found' });
 
-      // Map timeframes to Yahoo intervals and ranges
-      const tfMap = {
-        '1H': { interval: '1m', range: '1d' },
-        '1D': { interval: '5m', range: '1d' },
-        '1W': { interval: '15m', range: '5d' },
-        '1M': { interval: '1d', range: '1mo' },
-        '3M': { interval: '1d', range: '3mo' },
-        '1Y': { interval: '1wk', range: '1y' }
-      };
+      // Determine Yahoo interval, range and procedural stepSec
+      let interval = '1m';
+      let range = '1d';
+      let stepSec = 60;
+      let numCandles = 60;
 
-      const { interval, range } = tfMap[timeframe] || tfMap['1H'];
+      if (timeframe === '1m') {
+        interval = '1m'; range = '1d'; stepSec = 60; numCandles = 60;
+      } else if (timeframe === '2m') {
+        interval = '2m'; range = '1d'; stepSec = 120; numCandles = 60;
+      } else if (timeframe === '3m' || timeframe === '4m' || timeframe === '5m') {
+        interval = '5m'; range = '1d'; stepSec = 300; numCandles = 60;
+      } else if (timeframe === '10m' || timeframe === '15m') {
+        interval = '15m'; range = '5d'; stepSec = 900; numCandles = 50;
+      } else if (timeframe === '30m') {
+        interval = '30m'; range = '5d'; stepSec = 1800; numCandles = 50;
+      } else if (timeframe === '1h' || timeframe === '2h' || timeframe === '3h' || timeframe === '4h') {
+        interval = '60m'; range = '1mo'; 
+        const hrs = parseInt(timeframe, 10) || 1;
+        stepSec = hrs * 3600;
+        numCandles = 50;
+      } else if (timeframe === '1d') {
+        interval = '1d'; range = '3mo'; stepSec = 86400; numCandles = 60;
+      } else if (timeframe === '1w' || timeframe === '1wk') {
+        interval = '1wk'; range = '1y'; stepSec = 86400 * 7; numCandles = 52;
+      } else if (timeframe === '1mo' || timeframe === '3mo') {
+        interval = '1mo'; range = '2y'; stepSec = 86400 * 30; numCandles = 36;
+      } else if (timeframe.endsWith('m')) {
+        const mins = parseInt(timeframe, 10) || 15;
+        interval = mins <= 5 ? '5m' : (mins <= 15 ? '15m' : '30m');
+        range = mins <= 15 ? '1d' : '5d';
+        stepSec = mins * 60;
+        numCandles = 50;
+      } else if (timeframe.endsWith('h')) {
+        const hrs = parseInt(timeframe, 10) || 1;
+        interval = '60m'; range = '1mo';
+        stepSec = hrs * 3600;
+        numCandles = 50;
+      } else if (timeframe.endsWith('d')) {
+        const days = parseInt(timeframe, 10) || 1;
+        interval = '1d'; range = '1y';
+        stepSec = days * 86400;
+        numCandles = 60;
+      }
+
       const path = `/v8/finance/chart/${encodeURIComponent(config.yahooTicker)}?interval=${interval}&range=${range}`;
       const json = await fetchYahooJSON(path);
       const result = json?.chart?.result?.[0];
@@ -251,8 +285,6 @@ export function getCommodityRouter(prisma) {
       // Procedural fallback generator if Yahoo times out
       const currentPrice = quotesCache[config.symbol]?.price || config.baseFallbackPrice;
       const candles = [];
-      const numCandles = 60;
-      const stepSec = timeframe === '1H' ? 60 : (timeframe === '1D' ? 300 : 86400);
       let p = currentPrice * 0.985;
       const now = Math.floor(Date.now() / 1000);
 
