@@ -307,6 +307,14 @@ export function getLearnRouter(prisma) {
         }
       }
 
+      // Find next uncompleted lesson for immediate frontend transition
+      const completedLessonIds = userLessons.map(ul => ul.lessonId);
+      const nextLesson = await prisma.lesson.findFirst({
+        where: { id: { notIn: completedLessonIds } },
+        orderBy: [{ levelId: 'asc' }, { lessonNumber: 'asc' }],
+        include: { level: true }
+      });
+
       res.status(200).json({
         completed: true,
         passed: true,
@@ -318,6 +326,12 @@ export function getLearnRouter(prisma) {
         totalCompleted,
         newBadges,
         levelCompleted,
+        nextLesson: nextLesson ? {
+          levelName: `Level ${nextLesson.level.number}: ${nextLesson.level.title}`,
+          lessonTitle: nextLesson.title,
+          lessonNumber: nextLesson.lessonNumber,
+          duration: nextLesson.readTime || '5'
+        } : null,
         message: quizScore === 100
           ? 'PERFECT SCORE! You are a market genius!'
           : quizScore >= 90
@@ -373,6 +387,7 @@ export function getLearnRouter(prisma) {
         nextLesson: nextLesson ? {
           levelName: `Level ${nextLesson.level.number}: ${nextLesson.level.title}`,
           lessonTitle: nextLesson.title,
+          lessonNumber: nextLesson.lessonNumber,
           duration: nextLesson.readTime || '5'
         } : null
       });
