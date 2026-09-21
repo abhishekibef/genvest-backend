@@ -83,7 +83,7 @@ async function refreshCommodityQuotes() {
           dayHigh,
           dayLow,
           contractSize: item.contractSize,
-          leverage: item.leverage,
+          maxLeverage: item.maxLeverage,
           digits: item.digits,
           updatedAt: Date.now()
         };
@@ -115,7 +115,7 @@ for (const item of COMMODITY_CATALOG) {
     dayHigh: p * 1.012,
     dayLow: p * 0.988,
     contractSize: item.contractSize,
-    leverage: item.leverage,
+    maxLeverage: item.maxLeverage,
     digits: item.digits,
     updatedAt: Date.now()
   };
@@ -185,7 +185,7 @@ export function getCommodityRouter(prisma) {
         dayHigh: item.baseFallbackPrice,
         dayLow: item.baseFallbackPrice,
         contractSize: item.contractSize,
-        leverage: item.leverage,
+        maxLeverage: item.maxLeverage,
         digits: item.digits
       };
       return {
@@ -359,7 +359,59 @@ export function getCommodityRouter(prisma) {
     });
   });
 
-  // 4. POST /api/commodities/trade - Execute Buy (Long) or Sell (Short)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // HELPER: Compute full account summary (XM 360 style)
+  // Balance stays constant — margin is "locked" collateral, not an expense.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  async function computeAccountSummary(prisma, userId) {
+    const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
+    if (!user) return null;
+
+    const balance = user.commodityCash != null ? user.commodityCash : 10000.0;
+    const leverage = user.commodityLeverage || 100;
+
+    const openPositions = await prisma.commodityPosition.findMany({
+      where: { userId: Number(userId), status: 'OPEN' }
+    });
+
+    let totalFloatingPnl = 0;
+    let totalUsedMargin = 0;
+
+    for (const pos of openPositions) {
+      const quote = quotesCache[pos.symbol] || { bid: pos.entryPrice, ask: pos.entryPrice, price: pos.entryPrice };
+      const currentExitPrice = pos.type === 'BUY' ? quote.bid : quote.ask;
+      const livePnl = pos.type === 'BUY'
+        ? (currentExitPrice - pos.entryPrice) * pos.unitsPerLot * pos.lots
+        : (pos.entryPrice - currentExitPrice) * pos.unitsPerLot * pos.lots;
+
+      totalFloatingPnl += livePnl;
+      totalUsedMargin += pos.marginUsed;
+    }
+
+    const equity = balance + totalFloatingPnl;
+    const freeMargin = equity - totalUsedMargin;
+    const marginLevel = totalUsedMargin > 0
+      ? Math.round((equity / totalUsedMargin) * 100)
+      : null;
+
+    return {
+      balance,
+      equity: parseFloat(equity.toFixed(2)),
+      unrealizedPnl: parseFloat(totalFloatingPnl.toFixed(2)),
+      usedMargin: parseFloat(totalUsedMargin.toFixed(2)),
+      freeMargin: parseFloat(freeMargin.toFixed(2)),
+      marginLevel: marginLevel != null ? `${marginLevel}%` : '-',
+      marginLevelRaw: marginLevel,
+      leverage,
+      credit: 0.00,
+      openPositionCount: openPositions.length
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 4. POST /api/commodities/trade — Execute Buy (Long) or Sell (Short)
+  //    XM 360 model: Balance stays constant, margin is locked collateral.
+  // ═══════════════════════════════════════════════════════════════════════════════
   router.post('/commodities/trade', async (req, res) => {
     try {
       const { userId, symbol, type, lots, stopLoss, takeProfit } = req.body;
@@ -382,29 +434,31 @@ export function getCommodityRouter(prisma) {
         return res.status(400).json({ error: `Lots must be between ${config.minLot} and ${config.maxLot}` });
       }
 
+      const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
       const quote = quotesCache[config.symbol] || { price: config.baseFallbackPrice, bid: config.baseFallbackPrice, ask: config.baseFallbackPrice };
       // Buy executes at Ask, Sell executes at Bid (XM 360 broker mechanics)
       const executionPrice = type === 'BUY' ? quote.ask : quote.bid;
 
-      // Margin required = (Price * UnitsPerLot * Lots) / Leverage
+      // Effective leverage = min(user's leverage, instrument max)
+      const userLeverage = user.commodityLeverage || 100;
+      const effectiveLeverage = Math.min(userLeverage, config.maxLeverage || 1000);
+
+      // Margin required = (Price * ContractSize * Lots) / Leverage
       const notionalValue = executionPrice * config.contractSize * numLots;
-      const marginRequired = notionalValue / config.leverage;
+      const marginRequired = notionalValue / effectiveLeverage;
 
-      const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
-      if (!user) return res.status(404).json({ error: 'User not found' });
-
-      const currentBalance = user.commodityCash != null ? user.commodityCash : 10000.0;
-      if (currentBalance < marginRequired) {
-        return res.status(400).json({ 
-          error: `Insufficient USD funds. Required Margin: $${marginRequired.toFixed(2)}, Available: $${currentBalance.toFixed(2)}` 
+      // Compute free margin dynamically (XM 360 style — balance is NOT reduced by margin)
+      const account = await computeAccountSummary(prisma, userId);
+      if (account.freeMargin < marginRequired) {
+        return res.status(400).json({
+          error: `Insufficient free margin. Required: $${marginRequired.toFixed(2)}, Available: $${account.freeMargin.toFixed(2)}`
         });
       }
 
-      // Deduct margin from virtual USD cash
-      const updatedUser = await prisma.user.update({
-        where: { id: Number(userId) },
-        data: { commodityCash: currentBalance - marginRequired }
-      });
+      // DO NOT deduct from commodityCash — balance stays constant (XM 360 model)
+      // Margin is tracked via position.marginUsed
 
       const position = await prisma.commodityPosition.create({
         data: {
@@ -417,22 +471,29 @@ export function getCommodityRouter(prisma) {
           entryPrice: executionPrice,
           stopLoss: stopLoss ? parseFloat(stopLoss) : null,
           takeProfit: takeProfit ? parseFloat(takeProfit) : null,
-          marginUsed: marginRequired,
+          marginUsed: parseFloat(marginRequired.toFixed(2)),
           status: 'OPEN'
         }
       });
 
+      // Return updated account summary
+      const updatedAccount = await computeAccountSummary(prisma, userId);
+
       res.json({
         success: true,
         position,
-        balance: updatedUser.commodityCash
+        balance: updatedAccount.balance,
+        account: updatedAccount
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 5. POST /api/commodities/close - Close an open position
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 5. POST /api/commodities/close — Close an open position
+  //    XM 360 model: Only realized P/L changes balance.
+  // ═══════════════════════════════════════════════════════════════════════════════
   router.post('/commodities/close', async (req, res) => {
     try {
       const { userId, positionId } = req.body;
@@ -451,7 +512,7 @@ export function getCommodityRouter(prisma) {
 
       // To close a BUY, we sell at BID; to close a SELL, we buy at ASK
       const exitPrice = position.type === 'BUY' ? quote.bid : quote.ask;
-      
+
       // PnL calculation:
       // BUY: (Exit - Entry) * ContractSize * Lots
       // SELL: (Entry - Exit) * ContractSize * Lots
@@ -464,11 +525,13 @@ export function getCommodityRouter(prisma) {
 
       const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
       const currentBalance = user.commodityCash != null ? user.commodityCash : 10000.0;
-      const returnAmount = position.marginUsed + pnl;
+
+      // XM 360 model: Only realized P/L changes the balance (margin is NOT "returned")
+      const newBalance = Math.max(0, currentBalance + pnl);
 
       const updatedUser = await prisma.user.update({
         where: { id: Number(userId) },
-        data: { commodityCash: Math.max(0, currentBalance + returnAmount) }
+        data: { commodityCash: newBalance }
       });
 
       const updatedPosition = await prisma.commodityPosition.update({
@@ -476,23 +539,28 @@ export function getCommodityRouter(prisma) {
         data: {
           status: 'CLOSED',
           exitPrice,
-          pnl,
+          pnl: parseFloat(pnl.toFixed(2)),
           closedAt: new Date()
         }
       });
 
+      const account = await computeAccountSummary(prisma, userId);
+
       res.json({
         success: true,
         position: updatedPosition,
-        pnl,
-        balance: updatedUser.commodityCash
+        pnl: parseFloat(pnl.toFixed(2)),
+        balance: updatedUser.commodityCash,
+        account
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 6. GET /api/commodities/positions/:userId - Get open and closed trades with live mark-to-market PnL
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 6. GET /api/commodities/positions/:userId — Open & closed trades with live P/L
+  // ═══════════════════════════════════════════════════════════════════════════════
   router.get('/commodities/positions/:userId', async (req, res) => {
     try {
       const { userId } = req.params;
@@ -502,12 +570,8 @@ export function getCommodityRouter(prisma) {
         take: 100
       });
 
-      const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
-      const balance = user?.commodityCash != null ? user.commodityCash : 10000.0;
-
       const enriched = positions.map(pos => {
         if (pos.status === 'OPEN') {
-          const config = getCommodityBySymbol(pos.symbol);
           const quote = quotesCache[pos.symbol] || { bid: pos.entryPrice, ask: pos.entryPrice, price: pos.entryPrice };
           const currentExitPrice = pos.type === 'BUY' ? quote.bid : quote.ask;
           let livePnl = 0;
@@ -526,9 +590,13 @@ export function getCommodityRouter(prisma) {
         return pos;
       });
 
+      // Return full account summary alongside positions
+      const account = await computeAccountSummary(prisma, userId);
+
       res.json({
         success: true,
-        balance,
+        balance: account?.balance ?? 10000.0,
+        account,
         positions: enriched
       });
     } catch (err) {
@@ -536,7 +604,9 @@ export function getCommodityRouter(prisma) {
     }
   });
 
-  // 7. POST /api/commodities/reset-balance - Reset demo balance to $10,000.00
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 7. POST /api/commodities/reset-balance — Reset demo balance to $10,000.00
+  // ═══════════════════════════════════════════════════════════════════════════════
   router.post('/commodities/reset-balance', async (req, res) => {
     try {
       const { userId, amount } = req.body;
@@ -551,5 +621,210 @@ export function getCommodityRouter(prisma) {
     }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 8. GET /api/commodities/account/:userId — Full XM 360-style account summary
+  // ═══════════════════════════════════════════════════════════════════════════════
+  router.get('/commodities/account/:userId', async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const account = await computeAccountSummary(prisma, userId);
+      if (!account) return res.status(404).json({ error: 'User not found' });
+
+      res.json({ success: true, ...account });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // 9. PUT /api/commodities/leverage — Update user's leverage setting
+  // ═══════════════════════════════════════════════════════════════════════════════
+  router.put('/commodities/leverage', async (req, res) => {
+    try {
+      const { userId, leverage } = req.body;
+      const numLeverage = parseInt(leverage, 10);
+
+      if (!numLeverage || numLeverage < 1 || numLeverage > 1000) {
+        return res.status(400).json({ error: 'Leverage must be between 1 and 1000' });
+      }
+
+      // Check if user has open positions — warn but still allow (recalculate margin)
+      const openCount = await prisma.commodityPosition.count({
+        where: { userId: Number(userId), status: 'OPEN' }
+      });
+
+      const updatedUser = await prisma.user.update({
+        where: { id: Number(userId) },
+        data: { commodityLeverage: numLeverage }
+      });
+
+      // If user has open positions, recalculate margin for each position with new leverage
+      if (openCount > 0) {
+        const openPositions = await prisma.commodityPosition.findMany({
+          where: { userId: Number(userId), status: 'OPEN' }
+        });
+
+        for (const pos of openPositions) {
+          const config = getCommodityBySymbol(pos.symbol);
+          if (config) {
+            const effectiveLev = Math.min(numLeverage, config.maxLeverage || 1000);
+            const newMargin = (pos.entryPrice * pos.unitsPerLot * pos.lots) / effectiveLev;
+            await prisma.commodityPosition.update({
+              where: { id: pos.id },
+              data: { marginUsed: parseFloat(newMargin.toFixed(2)) }
+            });
+          }
+        }
+      }
+
+      const account = await computeAccountSummary(prisma, userId);
+
+      res.json({
+        success: true,
+        leverage: updatedUser.commodityLeverage,
+        openPositionsRecalculated: openCount,
+        account
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // SL/TP Auto-Trigger + Stop-Out Engine (runs on existing 1.5s tick loop)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  async function runStopOutAndSLTP() {
+    try {
+      const openPositions = await prisma.commodityPosition.findMany({
+        where: { status: 'OPEN' }
+      });
+
+      if (openPositions.length === 0) return;
+
+      // Group positions by userId for account-level stop-out checks
+      const userPositions = {};
+      for (const pos of openPositions) {
+        if (!userPositions[pos.userId]) userPositions[pos.userId] = [];
+        userPositions[pos.userId].push(pos);
+      }
+
+      for (const [uid, positions] of Object.entries(userPositions)) {
+        const userId = Number(uid);
+
+        for (const pos of positions) {
+          const quote = quotesCache[pos.symbol];
+          if (!quote) continue;
+
+          const currentExitPrice = pos.type === 'BUY' ? quote.bid : quote.ask;
+          const currentPrice = quote.price;
+
+          // --- SL/TP Auto-Trigger ---
+          let shouldClose = false;
+          let closeReason = '';
+
+          if (pos.stopLoss != null) {
+            if (pos.type === 'BUY' && currentPrice <= pos.stopLoss) {
+              shouldClose = true;
+              closeReason = 'Stop Loss triggered';
+            } else if (pos.type === 'SELL' && currentPrice >= pos.stopLoss) {
+              shouldClose = true;
+              closeReason = 'Stop Loss triggered';
+            }
+          }
+
+          if (pos.takeProfit != null && !shouldClose) {
+            if (pos.type === 'BUY' && currentPrice >= pos.takeProfit) {
+              shouldClose = true;
+              closeReason = 'Take Profit triggered';
+            } else if (pos.type === 'SELL' && currentPrice <= pos.takeProfit) {
+              shouldClose = true;
+              closeReason = 'Take Profit triggered';
+            }
+          }
+
+          if (shouldClose) {
+            const exitPrice = currentExitPrice;
+            const pnl = pos.type === 'BUY'
+              ? (exitPrice - pos.entryPrice) * pos.unitsPerLot * pos.lots
+              : (pos.entryPrice - exitPrice) * pos.unitsPerLot * pos.lots;
+
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            const bal = user?.commodityCash ?? 10000.0;
+
+            await prisma.user.update({
+              where: { id: userId },
+              data: { commodityCash: Math.max(0, bal + pnl) }
+            });
+
+            await prisma.commodityPosition.update({
+              where: { id: pos.id },
+              data: {
+                status: 'CLOSED',
+                exitPrice,
+                pnl: parseFloat(pnl.toFixed(2)),
+                closedAt: new Date()
+              }
+            });
+
+            console.log(`[SLTP] ${closeReason} for position #${pos.id} (${pos.symbol} ${pos.type}): PnL $${pnl.toFixed(2)}`);
+          }
+        }
+
+        // --- Stop-Out Check (account level, 20% threshold) ---
+        const account = await computeAccountSummary(prisma, userId);
+        if (account && account.marginLevelRaw != null && account.marginLevelRaw < 20 && account.openPositionCount > 0) {
+          // Find the position with the worst (most negative) P/L
+          const openPosWithPnl = [];
+          const userOpenPositions = await prisma.commodityPosition.findMany({
+            where: { userId, status: 'OPEN' }
+          });
+
+          for (const pos of userOpenPositions) {
+            const quote = quotesCache[pos.symbol];
+            if (!quote) continue;
+            const exitP = pos.type === 'BUY' ? quote.bid : quote.ask;
+            const pnl = pos.type === 'BUY'
+              ? (exitP - pos.entryPrice) * pos.unitsPerLot * pos.lots
+              : (pos.entryPrice - exitP) * pos.unitsPerLot * pos.lots;
+            openPosWithPnl.push({ pos, exitP, pnl });
+          }
+
+          // Sort by P/L ascending (worst loss first)
+          openPosWithPnl.sort((a, b) => a.pnl - b.pnl);
+
+          if (openPosWithPnl.length > 0) {
+            const worst = openPosWithPnl[0];
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            const bal = user?.commodityCash ?? 10000.0;
+
+            await prisma.user.update({
+              where: { id: userId },
+              data: { commodityCash: Math.max(0, bal + worst.pnl) }
+            });
+
+            await prisma.commodityPosition.update({
+              where: { id: worst.pos.id },
+              data: {
+                status: 'CLOSED',
+                exitPrice: worst.exitP,
+                pnl: parseFloat(worst.pnl.toFixed(2)),
+                closedAt: new Date()
+              }
+            });
+
+            console.log(`[STOP-OUT] Auto-closed position #${worst.pos.id} (${worst.pos.symbol} ${worst.pos.type}) at margin level ${account.marginLevelRaw}%. PnL: $${worst.pnl.toFixed(2)}`);
+          }
+        }
+      }
+    } catch (err) {
+      // Silent — don't crash the tick loop
+      console.warn('[SLTP/StopOut] Background check error:', err.message);
+    }
+  }
+
+  // Run SL/TP and stop-out checks every 3 seconds (offset from the 1.5s micro-tick)
+  setInterval(() => runStopOutAndSLTP(), 3000);
+
   return router;
 }
+

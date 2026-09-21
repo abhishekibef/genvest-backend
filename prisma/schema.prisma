@@ -74,6 +74,7 @@ model User {
   intradayPositions      IntradayPosition[]
   optionPositions        OptionPosition[]
   commodityCash          Float                  @default(10000.0)
+  commodityLeverage      Int                    @default(100)
   commodityPositions     CommodityPosition[]
 
   @@index([roiPercentage])
