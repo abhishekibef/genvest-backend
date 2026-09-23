@@ -657,22 +657,43 @@ export function getCommodityRouter(prisma) {
         return res.status(400).json({ error: 'Leverage must be between 1 and 1000' });
       }
 
-      // Check if user has open positions — warn but still allow (recalculate margin)
-      const openCount = await prisma.commodityPosition.count({
+      // Check if user has open positions
+      const openPositions = await prisma.commodityPosition.findMany({
         where: { userId: Number(userId), status: 'OPEN' }
       });
+
+      // PRE-FLIGHT SAFETY CHECK: Simulate new margin level before applying
+      // Prevents instant stop-out when lowering leverage with open positions
+      if (openPositions.length > 0) {
+        const account = await computeAccountSummary(prisma, userId);
+        let simulatedTotalMargin = 0;
+
+        for (const pos of openPositions) {
+          const config = getCommodityBySymbol(pos.symbol);
+          if (config) {
+            const effectiveLev = Math.min(numLeverage, config.maxLeverage || 1000);
+            simulatedTotalMargin += (pos.entryPrice * pos.unitsPerLot * pos.lots) / effectiveLev;
+          }
+        }
+
+        const simulatedMarginLevel = simulatedTotalMargin > 0
+          ? (account.equity / simulatedTotalMargin) * 100
+          : null;
+
+        if (simulatedMarginLevel != null && simulatedMarginLevel < 100) {
+          return res.status(400).json({
+            error: `Cannot change leverage: would drop Margin Level to ${simulatedMarginLevel.toFixed(0)}%. Minimum is 100%. Close some positions first or choose a higher leverage.`
+          });
+        }
+      }
 
       const updatedUser = await prisma.user.update({
         where: { id: Number(userId) },
         data: { commodityLeverage: numLeverage }
       });
 
-      // If user has open positions, recalculate margin for each position with new leverage
-      if (openCount > 0) {
-        const openPositions = await prisma.commodityPosition.findMany({
-          where: { userId: Number(userId), status: 'OPEN' }
-        });
-
+      // Recalculate margin for open positions with the new leverage
+      if (openPositions.length > 0) {
         for (const pos of openPositions) {
           const config = getCommodityBySymbol(pos.symbol);
           if (config) {
@@ -691,7 +712,7 @@ export function getCommodityRouter(prisma) {
       res.json({
         success: true,
         leverage: updatedUser.commodityLeverage,
-        openPositionsRecalculated: openCount,
+        openPositionsRecalculated: openPositions.length,
         account
       });
     } catch (err) {
