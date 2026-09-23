@@ -53,10 +53,11 @@ async function refreshCommodityQuotes() {
         const currentPrice = meta.regularMarketPrice;
         const q = result?.indicators?.quote?.[0];
         const validOpens = q?.open?.filter(o => o != null && !isNaN(o)) || [];
-        const sessionOpen = validOpens.length > 0 ? validOpens[validOpens.length - 1] : (meta.chartPreviousClose || currentPrice);
+        const sessionOpen = validOpens.length > 0 ? validOpens[validOpens.length - 1] : null;
         
-        // XM 360 calculates the daily performance from the current session open
-        const baseRef = sessionOpen || currentPrice;
+        // XM 360 calculates the daily performance from the current session open,
+        // falling back to previous close (not currentPrice which would always show 0%)
+        const baseRef = sessionOpen || meta.chartPreviousClose || currentPrice;
         const change = currentPrice - baseRef;
         const changePercent = baseRef > 0 ? (change / baseRef) * 100 : 0;
         const dayHigh = meta.regularMarketDayHigh || Math.max(currentPrice, baseRef);
@@ -73,6 +74,7 @@ async function refreshCommodityQuotes() {
           category: item.category,
           iconType: item.iconType,
           price: currentPrice,
+          yahooAnchor: currentPrice, // Anchor for micro-tick mean-reversion (prevents drift)
           bid,
           ask,
           spread: item.spread,
@@ -121,12 +123,14 @@ for (const item of COMMODITY_CATALOG) {
   };
 }
 
-// Trigger live fetch from Yahoo Finance every 20s
+// Trigger live fetch from Yahoo Finance every 8s (tighter than previous 20s for XM 360-accurate pricing)
 refreshCommodityQuotes();
-setInterval(refreshCommodityQuotes, 20000);
+setInterval(refreshCommodityQuotes, 8000);
 
 // Real-Time Micro-Tick Engine (simulates XM 360 live order-book liquidity during open market hours)
-// Ticks prices by small increments every 1.5 seconds so users see live flashing rates when market is open
+// Ticks prices by small increments every 1.5 seconds so users see live flashing rates when market is open.
+// Uses MEAN-REVERSION anchoring: micro-ticks orbit the last Yahoo-confirmed price so displayed prices
+// never drift more than a fraction of a percent from the real market price (matching XM 360 behavior).
 setInterval(() => {
   for (const item of COMMODITY_CATALOG) {
     // If the market is closed, FREEZE the price (no micro-ticks on weekends / outside market hours)
@@ -135,9 +139,14 @@ setInterval(() => {
     const q = quotesCache[item.symbol];
     if (!q) continue;
 
-    // Small random micro-tick: +/- 0.005% for subtle realistic liquidity tick
-    const tickMultiplier = 1 + (Math.random() - 0.495) * 0.0002;
-    const newPrice = parseFloat((q.price * tickMultiplier).toFixed(item.digits || 2));
+    // Mean-reversion anchor: pull price back toward the last Yahoo-confirmed real price
+    // This prevents unbounded random-walk drift that was causing Moolzen prices to diverge from XM 360
+    const anchor = q.yahooAnchor || q.price;
+    const drift = (anchor - q.price) * 0.05; // 5% pull toward real price per tick
+    // Zero-mean random noise: (Math.random() - 0.5) has mean 0, no directional bias
+    const noise = (Math.random() - 0.5) * 0.0002 * q.price;
+    const newPrice = parseFloat((q.price + drift + noise).toFixed(item.digits || 2));
+
     const halfSpread = (item.spread || 0.5) / 2;
     const bid = parseFloat(Math.max(0, newPrice - halfSpread).toFixed(item.digits || 2));
     const ask = parseFloat((newPrice + halfSpread).toFixed(item.digits || 2));
@@ -290,7 +299,7 @@ export function getCommodityRouter(prisma) {
 
       for (let i = numCandles; i >= 0; i--) {
         const t = now - (i * stepSec);
-        const delta = (Math.random() - 0.48) * (currentPrice * 0.003);
+        const delta = (Math.random() - 0.5) * (currentPrice * 0.003);
         const open = p;
         const close = open + delta;
         const high = Math.max(open, close) + Math.random() * (currentPrice * 0.0015);
