@@ -205,12 +205,100 @@ export const invalidateLeaderboardCache = () => {
 };
 
 // ============================================================
-// TIER CALCULATION HELPER
+// TIER & TRADING PERFORMANCE CALCULATION HELPERS
 // ============================================================
-function calculateTier(roi) {
+export function calculateTier(roi) {
   if (roi >= 15) return 'A';
   if (roi > 0) return 'B';
   return 'C';
+}
+
+export function calculateTradingPerformance(user, stockPrices, timeframe = 'alltime', snapshotMap = {}) {
+  const transactions = user.transactions || [];
+  const holdings = user.holdings || [];
+
+  const tradesCount = transactions.length;
+  const hasHoldings = holdings.length > 0;
+  const hasTraded = tradesCount > 0 || hasHoldings;
+
+  // STRICT RULE 1: If user has 0 trades and 0 holdings, they CANNOT have non-zero ROI!
+  if (!hasTraded) {
+    return {
+      hasTraded: false,
+      tradesCount: 0,
+      realizedPnL: 0,
+      unrealizedPnL: 0,
+      totalPnL: 0,
+      roi: 0.0,
+      tier: 'C',
+    };
+  }
+
+  // 1. Calculate Unrealized P&L from current open stock holdings
+  let unrealizedPnL = 0;
+  let holdingsCurrentValue = 0;
+
+  holdings.forEach(h => {
+    const livePrice = stockPrices[h.stockId] || h.avgPrice || 0;
+    const cost = h.quantity * (h.avgPrice || 0);
+    const value = h.quantity * livePrice;
+    unrealizedPnL += (value - cost);
+    holdingsCurrentValue += value;
+  });
+
+  // 2. Calculate Realized P&L from closed trades (transactions) using FIFO cost matching
+  let realizedPnL = 0;
+  const buyQueues = {};
+
+  let filteredTx = transactions;
+  if (timeframe !== 'alltime') {
+    const daysAgo = timeframe === '7d' ? 7 : 30;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysAgo);
+    filteredTx = transactions.filter(t => new Date(t.timestamp) >= cutoff);
+  }
+
+  const sortedTx = [...filteredTx].sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+
+  for (const tx of sortedTx) {
+    const sym = tx.stockId;
+    if (!buyQueues[sym]) buyQueues[sym] = [];
+
+    if (tx.type === 'BUY') {
+      buyQueues[sym].push({ qty: tx.quantity, price: tx.price });
+    } else if (tx.type === 'SELL') {
+      let sellQty = tx.quantity;
+      while (sellQty > 0 && buyQueues[sym].length > 0) {
+        const oldestBuy = buyQueues[sym][0];
+        const matchQty = Math.min(sellQty, oldestBuy.qty);
+        realizedPnL += matchQty * (tx.price - oldestBuy.price);
+        oldestBuy.qty -= matchQty;
+        sellQty -= matchQty;
+        if (oldestBuy.qty <= 0) {
+          buyQueues[sym].shift();
+        }
+      }
+    }
+  }
+
+  const totalPnL = realizedPnL + unrealizedPnL;
+  let baseCapital = 1000000;
+  if (timeframe !== 'alltime' && snapshotMap[user.id]) {
+    baseCapital = snapshotMap[user.id];
+  }
+
+  const roi = (totalPnL / baseCapital) * 100;
+  const tier = calculateTier(roi);
+
+  return {
+    hasTraded: true,
+    tradesCount,
+    realizedPnL: Math.round(realizedPnL * 100) / 100,
+    unrealizedPnL: Math.round(unrealizedPnL * 100) / 100,
+    totalPnL: Math.round(totalPnL * 100) / 100,
+    roi: Math.round(roi * 100) / 100,
+    tier,
+  };
 }
 
 // ============================================================
@@ -220,54 +308,66 @@ function calculateTier(roi) {
 export const runWeeklyTierRecalculation = async () => {
   console.log('🏆 Running Weekly Tier Recalculation (A/B/C)...');
   try {
-    // 1. Fetch all users with holdings and stock prices
+    // 1. Fetch all users with holdings, transactions, and stock prices
     const users = await prisma.user.findMany({
-      include: { holdings: { include: { stock: true } } }
+      include: {
+        holdings: { include: { stock: true } },
+        transactions: { select: { id: true, stockId: true, type: true, quantity: true, price: true, timestamp: true } }
+      }
     });
 
     const stocks = await prisma.stock.findMany();
     const stockPrices = {};
     stocks.forEach(s => { stockPrices[s.id] = s.price; });
 
-    // 2. Calculate ROI for each user
+    // 2. Calculate true trading ROI for each user (strictly based on genuine trades)
     const usersWithROI = users.map(u => {
       let holdingsValue = 0;
       u.holdings.forEach(h => {
-        holdingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice);
+        holdingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice || 0);
       });
       const netWorth = u.cash + holdingsValue;
-      const profitLoss = netWorth - 1000000;
-      const roi = (profitLoss / 1000000) * 100;
-      return { ...u, netWorth, profitLoss, roi, tier: calculateTier(roi) };
+      const perf = calculateTradingPerformance(u, stockPrices, 'alltime');
+      return {
+        ...u,
+        netWorth,
+        profitLoss: perf.totalPnL,
+        roi: perf.roi,
+        tier: perf.tier,
+        hasTraded: perf.hasTraded
+      };
     });
 
-    // 3. Sort by ROI DESC, tie-break by profitLoss DESC, then createdAt ASC (older = higher rank)
-    usersWithROI.sort((a, b) => {
+    // 3. Separate active traders from inactive accounts with 0 trades
+    const activeTraders = usersWithROI.filter(u => u.hasTraded);
+    activeTraders.sort((a, b) => {
       if (b.roi !== a.roi) return b.roi - a.roi;
       if (b.profitLoss !== a.profitLoss) return b.profitLoss - a.profitLoss;
       return new Date(a.createdAt) - new Date(b.createdAt);
     });
 
-    // 4. Assign global ranks
-    const withGlobalRank = usersWithROI.map((u, i) => ({ ...u, globalRank: i + 1 }));
+    // 4. Assign ranks for active traders
+    activeTraders.forEach((u, i) => { u.globalRank = i + 1; });
 
-    // 5. Assign tier ranks within each tier
-    const tierGroups = { A: [], B: [], C: [] };
-    withGlobalRank.forEach(u => tierGroups[u.tier].push(u));
-    const finalUsers = [
-      ...tierGroups.A.map((u, i) => ({ ...u, tierRank: i + 1 })),
-      ...tierGroups.B.map((u, i) => ({ ...u, tierRank: i + 1 })),
-      ...tierGroups.C.map((u, i) => ({ ...u, tierRank: i + 1 })),
-    ];
+    const tierGroups = { A: 0, B: 0, C: 0 };
+    activeTraders.forEach(u => {
+      tierGroups[u.tier]++;
+      u.tierRank = tierGroups[u.tier];
+    });
 
-    // 6. Update each user in DB & send SocialFeed notifications for tier changes
-    for (const u of finalUsers) {
-      const oldTier = u.tier; // fetched from DB
-      const newTier = u.tier; // just calculated — same variable, but we need the DB value
-      // Re-fetch old tier from the original user object
-      const dbUser = users.find(x => x.id === u.id);
-      const previousTier = dbUser?.tier || 'B';
+    // 5. Inactive accounts with 0 trades are strictly Tier C and unranked
+    const inactiveUsers = usersWithROI.filter(u => !u.hasTraded);
+    inactiveUsers.forEach(u => {
+      u.globalRank = 0;
+      u.tierRank = 0;
+      u.tier = 'C';
+      u.roi = 0.0;
+    });
 
+    const allUsersToUpdate = [...activeTraders, ...inactiveUsers];
+
+    // 6. Update database records
+    for (const u of allUsersToUpdate) {
       await prisma.user.update({
         where: { id: u.id },
         data: {
@@ -278,27 +378,10 @@ export const runWeeklyTierRecalculation = async () => {
           lastTierUpdate: new Date()
         }
       });
-
-      // Notify on tier change
-      if (previousTier !== u.tier) {
-        const promoted = u.tier < previousTier; // A < B < C alphabetically = promotion
-        const tierLabels = { A: 'Tier A (Elite) 👑', B: 'Tier B (Solid) ⭐', C: 'Tier C (Learning) 📚' };
-        await prisma.socialFeed.create({
-          data: {
-            userId: u.id,
-            username: u.username || u.email.split('@')[0],
-            type: 'PROMOTION',
-            message: promoted
-              ? `🎉 Promoted to ${tierLabels[u.tier]}! ROI: ${u.roi >= 0 ? '+' : ''}${u.roi.toFixed(2)}% | Global Rank #${u.globalRank}`
-              : `📉 Moved to ${tierLabels[u.tier]}. ROI: ${u.roi >= 0 ? '+' : ''}${u.roi.toFixed(2)}%. Don't worry, bounce back next week! 💪`
-          }
-        });
-      }
     }
 
-    // 7. Invalidate leaderboard cache
     invalidateLeaderboardCache();
-    console.log(`✅ Tier recalculation complete for ${finalUsers.length} users.`);
+    console.log(`✅ Weekly Tier Recalculation complete. ${activeTraders.length} active rankers, ${inactiveUsers.length} inactive accounts sanitized.`);
   } catch (error) {
     console.error('❌ Weekly tier recalculation error:', error);
   }
@@ -517,6 +600,9 @@ export const initCronJobs = () => {
     const campaign = getCurrentCampaign();
     sendPreviewToOwner(campaign.lessonId || 1, prisma);
   });
+
+  // Run an immediate tier & leaderboard audit on startup to sanitize any 0-trade anomalies
+  runWeeklyTierRecalculation().catch(err => console.error('Startup tier sanitization error:', err));
 
   console.log('⏳ Gamification & Email Drip Cron Jobs initialized.');
 };

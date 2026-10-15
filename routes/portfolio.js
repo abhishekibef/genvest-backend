@@ -18,6 +18,7 @@ export function getPortfolioRouter(prisma) {
           holdings: {
             include: { stock: true }
           },
+          transactions: { select: { id: true } },
           referrals: true
         }
       });
@@ -69,10 +70,11 @@ export function getPortfolioRouter(prisma) {
         });
       });
 
+      const hasAnyTrades = (user.holdings && user.holdings.length > 0) || (user.transactions && user.transactions.length > 0);
       const totalPortfolioValue = user.cash + totalHoldingsCurrentValue;
       const initialCapital = 1000000.0 + (user.referredById ? 5000.0 : 0.0) + (user.referrals.length * 10000.0);
-      const overallPnl = totalPortfolioValue - initialCapital;
-      const overallPnlPercent = (overallPnl / initialCapital) * 100;
+      const overallPnl = hasAnyTrades ? (totalPortfolioValue - initialCapital) : 0.0;
+      const overallPnlPercent = hasAnyTrades ? ((overallPnl / initialCapital) * 100) : 0.0;
 
       // Calculate sector weights out of total portfolio value
       const sectorAllocations = [];

@@ -7,13 +7,13 @@ import { leaderboardCache, invalidateLeaderboardCache } from '../cron.js';
 
 const INITIAL_CAPITAL = 1000000; // ₹10,00,000
 
-function calculateTier(roi) {
+export function calculateTier(roi) {
   if (roi >= 15) return 'A';
   if (roi > 0) return 'B';
   return 'C';
 }
 
-function calculateLearningLeague(totalXP) {
+export function calculateLearningLeague(totalXP) {
   if (totalXP >= 1000) return 'DIAMOND';
   if (totalXP >= 500) return 'PLATINUM';
   if (totalXP >= 250) return 'GOLD';
@@ -21,11 +21,108 @@ function calculateLearningLeague(totalXP) {
   return 'BRONZE';
 }
 
-const TIER_CONFIG = {
+export const TIER_CONFIG = {
   A: { label: 'Tier A (Elite)', icon: 'crown', color: '#FFD700' },
   B: { label: 'Tier B (Solid)', icon: 'star', color: '#3B82F6' },
   C: { label: 'Tier C (Learning)', icon: 'learn', color: '#A78BFA' },
 };
+
+// ─── STRICT TRADING PERFORMANCE CALCULATOR ────────────────────────────
+// Calculates REAL trading P&L from actual transactions and open stock holdings.
+// "Set Balance" or virtual cash adjustments NEVER artificially inflate trading ROI.
+export function calculateTradingPerformance(user, stockPrices, timeframe = 'alltime', snapshotMap = {}) {
+  const transactions = user.transactions || [];
+  const holdings = user.holdings || [];
+
+  const tradesCount = transactions.length;
+  const hasHoldings = holdings.length > 0;
+  const hasTraded = tradesCount > 0 || hasHoldings;
+
+  // STRICT RULE 1: If user has 0 trades and 0 holdings, they CANNOT have non-zero ROI!
+  if (!hasTraded) {
+    return {
+      hasTraded: false,
+      tradesCount: 0,
+      realizedPnL: 0,
+      unrealizedPnL: 0,
+      totalPnL: 0,
+      roi: 0.0,
+      tier: 'C',
+    };
+  }
+
+  // 1. Calculate Unrealized P&L from current open stock holdings
+  let unrealizedPnL = 0;
+  let holdingsCurrentValue = 0;
+  let holdingsCostBasis = 0;
+
+  holdings.forEach(h => {
+    const livePrice = stockPrices[h.stockId] || h.avgPrice || 0;
+    const cost = h.quantity * (h.avgPrice || 0);
+    const value = h.quantity * livePrice;
+    unrealizedPnL += (value - cost);
+    holdingsCurrentValue += value;
+    holdingsCostBasis += cost;
+  });
+
+  // 2. Calculate Realized P&L from closed trades (transactions) using FIFO cost matching
+  let realizedPnL = 0;
+  const buyQueues = {}; // stockId -> [{ qty, price }]
+
+  // Filter transactions by timeframe if applicable
+  let filteredTx = transactions;
+  if (timeframe !== 'alltime') {
+    const daysAgo = timeframe === '7d' ? 7 : 30;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysAgo);
+    filteredTx = transactions.filter(t => new Date(t.timestamp) >= cutoff);
+  }
+
+  const sortedTx = [...filteredTx].sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+
+  for (const tx of sortedTx) {
+    const sym = tx.stockId;
+    if (!buyQueues[sym]) buyQueues[sym] = [];
+
+    if (tx.type === 'BUY') {
+      buyQueues[sym].push({ qty: tx.quantity, price: tx.price });
+    } else if (tx.type === 'SELL') {
+      let sellQty = tx.quantity;
+      while (sellQty > 0 && buyQueues[sym].length > 0) {
+        const oldestBuy = buyQueues[sym][0];
+        const matchQty = Math.min(sellQty, oldestBuy.qty);
+        realizedPnL += matchQty * (tx.price - oldestBuy.price);
+        oldestBuy.qty -= matchQty;
+        sellQty -= matchQty;
+        if (oldestBuy.qty <= 0) {
+          buyQueues[sym].shift();
+        }
+      }
+    }
+  }
+
+  // Pure trading P&L = Realized gains/losses + Unrealized paper gains/losses
+  const totalPnL = realizedPnL + unrealizedPnL;
+
+  // Baseline practice capital (standard base ₹10,00,000)
+  let baseCapital = INITIAL_CAPITAL;
+  if (timeframe !== 'alltime' && snapshotMap[user.id]) {
+    baseCapital = snapshotMap[user.id];
+  }
+
+  const roi = (totalPnL / baseCapital) * 100;
+  const tier = calculateTier(roi);
+
+  return {
+    hasTraded: true,
+    tradesCount,
+    realizedPnL: Math.round(realizedPnL * 100) / 100,
+    unrealizedPnL: Math.round(unrealizedPnL * 100) / 100,
+    totalPnL: Math.round(totalPnL * 100) / 100,
+    roi: Math.round(roi * 100) / 100,
+    tier,
+  };
+}
 
 // ============================================================
 // LEADERBOARD ROUTER
@@ -42,7 +139,7 @@ export function getLeaderboardRouter(prisma) {
 
     try {
       // ── 1. Check cache (1-minute TTL) ───────────────────────────────────
-      const cacheKey = `trading:${timeframe}:v2`;
+      const cacheKey = `trading:${timeframe}:v3`;
       const cached = leaderboardCache.get(cacheKey);
       const now = Date.now();
       let allTradingEntries = null;
@@ -51,12 +148,12 @@ export function getLeaderboardRouter(prisma) {
         allTradingEntries = cached.data;
       }
 
-      // ── 2. Get current user's profile ────────────────────────────────────
+      // ── 2. Get current user's profile with transactions ─────────────────
       const user = await prisma.user.findUnique({
         where: { id: Number(userId) },
         include: {
           holdings: { include: { stock: true } },
-          transactions: { select: { id: true } },
+          transactions: { select: { id: true, stockId: true, type: true, quantity: true, price: true, timestamp: true } },
           lessons: true,
         }
       });
@@ -73,7 +170,7 @@ export function getLeaderboardRouter(prisma) {
         const users = await prisma.user.findMany({
           include: {
             holdings: { include: { stock: true } },
-            transactions: { select: { id: true } },
+            transactions: { select: { id: true, stockId: true, type: true, quantity: true, price: true, timestamp: true } },
           }
         });
 
@@ -99,25 +196,15 @@ export function getLeaderboardRouter(prisma) {
 
         const entries = users
           .map(u => {
-            const displayName = u.username || u.email.split('@')[0];
+            const displayName = u.username || (u.email ? u.email.split('@')[0] : `Trader${u.id}`);
             let holdingsValue = 0;
             u.holdings.forEach(h => {
-              holdingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice);
+              holdingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice || 0);
             });
             const netWorth = u.cash + holdingsValue;
 
-            // Determine base for ROI calculation
-            let baseCapital = INITIAL_CAPITAL;
-            if (timeframe !== 'alltime' && snapshotMap[u.id]) {
-              baseCapital = snapshotMap[u.id];
-            }
-
-            const profitLoss = netWorth - baseCapital;
-            const roi = (profitLoss / baseCapital) * 100;
-            const tier = calculateTier(roi);
-            const tradesCount = u.transactions.length;
-            const hasHoldings = u.holdings.length > 0;
-            const hasTraded = tradesCount > 0 || hasHoldings || Math.abs(profitLoss) > 0.01;
+            // Compute pure trading performance (immune to virtual cash reset)
+            const perf = calculateTradingPerformance(u, stockPrices, timeframe, snapshotMap);
 
             return {
               id: `user-${u.id}`,
@@ -126,17 +213,17 @@ export function getLeaderboardRouter(prisma) {
               avatar: u.id % 2 === 0 ? '#6366F1' : '#10B981',
               streak: u.streak || 1,
               league: u.league || 'BRONZE',
-              roi: Math.round(roi * 100) / 100,
-              profitLoss: Math.round(profitLoss * 100) / 100,
+              roi: perf.roi,
+              profitLoss: perf.totalPnL,
               netWorth: Math.round(netWorth * 100) / 100,
-              tier,
-              tierConfig: TIER_CONFIG[tier],
+              tier: perf.tier,
+              tierConfig: TIER_CONFIG[perf.tier],
               createdAt: u.createdAt,
-              tradesCount,
-              hasTraded,
+              tradesCount: perf.tradesCount,
+              hasTraded: perf.hasTraded,
             };
           })
-          // Active Traders Only: Exclude accounts with 0 trades and 0 holdings
+          // Active Traders Only: STRICTLY exclude accounts with 0 trades and 0 holdings!
           .filter(e => e.hasTraded);
 
         // Sort: ROI DESC → profitLoss DESC → createdAt ASC (older account wins tie)
@@ -175,17 +262,18 @@ export function getLeaderboardRouter(prisma) {
         username: e.userId === Number(userId) ? `${e.username} (You)` : e.username,
       }));
 
-      // ── 6. User-specific data (always fresh) ─────────────────────────────
+      // ── 6. User-specific data (always fresh & strictly based on trading) ──
       const userEntry = allTradingEntries.find(e => e.userId === Number(userId));
+      const userPerf = calculateTradingPerformance(user, stockPrices, timeframe);
 
       let userHoldingsValue = 0;
       user.holdings.forEach(h => {
-        userHoldingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice);
+        userHoldingsValue += h.quantity * (stockPrices[h.stockId] || h.avgPrice || 0);
       });
       const userNetWorth = user.cash + userHoldingsValue;
-      const userProfitLoss = userNetWorth - INITIAL_CAPITAL;
-      const userROI = (userProfitLoss / INITIAL_CAPITAL) * 100;
-      const userTier = calculateTier(userROI);
+      const userProfitLoss = userPerf.totalPnL;
+      const userROI = userPerf.roi;
+      const userTier = userPerf.tier;
 
       // ── 7. Learning Leaderboard (Active Learners Only) ───────────────────
       const allUsersForLearning = await prisma.user.findMany({
@@ -251,6 +339,18 @@ export function getLeaderboardRouter(prisma) {
     } catch (error) {
       console.error(`❌ Leaderboard error for user ${userId}:`, error);
       res.status(500).json({ error: 'Failed to retrieve leaderboard data' });
+    }
+  });
+
+  // POST /recalculate - Manually trigger an immediate tier & leaderboard audit and cache flush
+  router.post('/recalculate', async (req, res) => {
+    try {
+      const { runWeeklyTierRecalculation } = await import('../cron.js');
+      await runWeeklyTierRecalculation();
+      res.json({ success: true, message: 'Leaderboard and tiers recalculated successfully.' });
+    } catch (err) {
+      console.error('Manual recalculation error:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 
