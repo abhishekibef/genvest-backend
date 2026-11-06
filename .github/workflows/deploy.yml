@@ -33,7 +33,7 @@ jobs:
             done
             
             echo "🔄 Restarting PM2 processes..."
-            pm2 restart all || pm2 start server.js --name genvest-backend
+            pm2 restart all || pm2 start server.js --name moolzen-backend
             pm2 save
             echo "⏳ Waiting for server to boot..."
             sleep 5
