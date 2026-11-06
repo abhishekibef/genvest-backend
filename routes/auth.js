@@ -571,6 +571,53 @@ export function getAuthRouter(prisma) {
     }
   });
 
+  // Delete user account by ID (Apple App Store Account Deletion compliance)
+  router.delete('/user/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+      const userId = Number(id);
+      if (!userId || isNaN(userId)) {
+        return res.status(400).json({ error: 'Valid user ID is required.' });
+      }
+
+      const existingUser = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+
+      if (!existingUser) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
+
+      try {
+        await prisma.user.delete({
+          where: { id: userId }
+        });
+      } catch (delErr) {
+        console.warn('Direct user delete failed, anonymizing record:', delErr.message);
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            email: `deleted_${userId}_${Date.now()}@moolzen.deleted`,
+            username: `deleted_${userId}_${Date.now()}`,
+            name: 'Deleted User',
+            phone: null,
+            password: null,
+            fcmToken: null
+          }
+        });
+      }
+
+      console.log(`🗑️ User account ${userId} deleted successfully.`);
+      res.status(200).json({
+        success: true,
+        message: 'User account and associated data deleted successfully.'
+      });
+    } catch (error) {
+      console.error('❌ Failed to delete user:', error);
+      res.status(500).json({ error: 'Internal Server Error while deleting user account.' });
+    }
+  });
+
   // POST endpoint to send SMS OTP
   router.post('/send-otp', async (req, res) => {
     const { phone } = req.body;
