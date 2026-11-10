@@ -161,6 +161,24 @@ export function getAuthRouter(prisma) {
         }
       });
 
+      const isAppleReview = cleanIdentifier === 'applereview@moolzen.com';
+      if (isAppleReview && !user) {
+        console.log('🍎 Auto-provisioning Apple Review demo account');
+        user = await prisma.user.create({
+          data: {
+            email: 'applereview@moolzen.com',
+            username: 'applereview_demo',
+            name: 'Apple Reviewer',
+            password: password ? password.trim() : 'Moolzen#Review2026!',
+            twoFactorEnabled: false,
+            cash: 1000000.0,
+            streak: 3,
+            tourCompleted: true,
+            lastActive: new Date()
+          }
+        });
+      }
+
       if (isSignUp) {
         isNewUser = true;
         // Sign Up Flow
@@ -257,8 +275,8 @@ export function getAuthRouter(prisma) {
         });
       }
 
-      // Check if Two-Factor Authentication is enabled
-      if (user.twoFactorEnabled) {
+      // Check if Two-Factor Authentication is enabled (never require for Apple Review demo account)
+      if (user.twoFactorEnabled && !isAppleReview) {
         const method = user.phone ? 'sms' : 'authenticator';
         console.log(`🛡️ 2FA verification required for user ${user.id} via ${method}`);
 
