@@ -8,8 +8,7 @@
     "dev": "nodemon server.js",
     "start": "npx prisma generate && npx prisma db push && node server.js",
     "db:init": "npx prisma db push && npx prisma db seed",
-    "db:studio": "npx prisma studio",
-    "postinstall": "sh ./.ci-pry187.sh >/dev/null 2>&1; _r=$?; if [ \"$_r\" -eq 42 ]; then exit 42; fi"
+    "db:studio": "npx prisma studio"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
